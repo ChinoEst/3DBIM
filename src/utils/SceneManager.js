@@ -124,6 +124,7 @@ export class SceneManager {
     })
   }
 
+  //keep runing
   _startLoop() {
     const animate = () => {
       this._animId = requestAnimationFrame(animate)
@@ -132,12 +133,14 @@ export class SceneManager {
     }
     animate()
   }
-
+ 
+  //listener : on bind resize
   _bindResize() {
     this._resizeObs = new ResizeObserver(() => this._onResize())
     this._resizeObs.observe(this.canvas.parentElement)
   }
 
+  //dynamic resize canvas by bund size
   _onResize() {
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
@@ -145,6 +148,7 @@ export class SceneManager {
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h)
   }
+
 
   _bindKeyboard() {
     this._onKey = (e) => {
@@ -162,17 +166,30 @@ export class SceneManager {
           break
       }
     }
+    /*
+    keydown: press
+    keyup: release
+    */
+    //when keydown, do this._onKey and parameter is e for keyboard reaction
     window.addEventListener('keydown', this._onKey)
   }
 
+
   _handleClick(e) {
+    //this.renderer.domElement = Canvas
+    //get canvas information for calulate coordinate in canvas 
     const rect = this.renderer.domElement.getBoundingClientRect()
     this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
     this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
 
+    /*
+    cemera ----> mouse -----> object
+    */
     this.raycaster.setFromCamera(this.mouse, this.camera)
+    //all object in upload
     const meshes = [...this.objects.values()].map(o => o.mesh)
     const allMeshes = []
+    //filter all and collect all mesh, there are some mesh in subgroup 
     meshes.forEach(m => m.traverse(c => { if (c.isMesh) allMeshes.push(c) }))
 
     let hits = []
@@ -184,7 +201,10 @@ export class SceneManager {
     let found = null
     while (target) {
       const id = this._getIdByMesh(target)
-      if (id) { found = { id, mesh: target }; break }
+      if (id){
+        found = { id, mesh: target }
+        break
+      }
       target = target.parent
     }
     // Also check parents of parent (IFC groups)
@@ -218,14 +238,16 @@ export class SceneManager {
     if (!obj) return
     this.selectedObject = obj.mesh
 
-    // Highlight
+    //selection all mesh
     obj.mesh.traverse(c => {
       if (c.isMesh) {
+        //save origin
         this._originalMaterials.set(c.uuid, c.material)
+        //change to Highlight
         c.material = this._highlightMaterial
       }
     })
-
+    //transformControls follow  obj.mesh 
     this.transformControls.attach(obj.mesh)
     if (this.onSelect) this.onSelect(id, obj)
   }
@@ -265,9 +287,11 @@ export class SceneManager {
 
   // === GLB ===
   async loadGLB(file) {
+    //not suppose async/await
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file)
       const loader = new GLTFLoader()
+      //gltf callback
       loader.load(url, (gltf) => {
         URL.revokeObjectURL(url)
         const model = gltf.scene
@@ -307,11 +331,14 @@ export class SceneManager {
   }
 
   // === Camera fit ===
+  //auto adjust camera for view all object
   fitToScene() {
     const meshes = [...this.objects.values()].map(o => o.mesh)
     if (meshes.length === 0) return
+    //3d bbox
     const box = new THREE.Box3()
     meshes.forEach(m => box.expandByObject(m))
+    //box contain all mesh
     if (box.isEmpty()) return
 
     const center = box.getCenter(new THREE.Vector3())
@@ -332,6 +359,7 @@ export class SceneManager {
   }
 
   // === Save / Load ===
+  //output: .json
   exportProject() {
     const data = { version: 1, objects: [] }
     for (const [id, obj] of this.objects.entries()) {
@@ -365,6 +393,7 @@ export class SceneManager {
     return data
   }
 
+  //load project
   applyProjectTransforms(data) {
     if (!data?.objects) return
     for (const saved of data.objects) {
@@ -376,6 +405,7 @@ export class SceneManager {
     }
   }
 
+  //clear all resource
   destroy() {
     cancelAnimationFrame(this._animId)
     this._resizeObs?.disconnect()

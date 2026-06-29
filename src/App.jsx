@@ -7,27 +7,29 @@ import LoadingOverlay from './components/LoadingOverlay.jsx'
 import DropZone from './components/DropZone.jsx'
 import { useToast, ToastContainer } from './components/Toast.jsx'
 
-
+// App 是整個 BIM 檢視器的主入口，負責串接 3D 場景與使用者操作。
 export default function App() {
+  // 用來取得畫布與各種隱藏檔案輸入元件，避免重新渲染後丟失引用。
   const canvasRef = useRef(null)
   const sceneRef = useRef(null)
   const ifcInputRef = useRef(null)
   const glbInputRef = useRef(null)
   const projectInputRef = useRef(null)
 
-  const [objects, setObjects] = useState(new Map())  //new Map() =  dict()  for append and delete
+  // 用 Map 儲存場景中的物件，方便依 ID 做新增、選取與刪除。
+  const [objects, setObjects] = useState(new Map())
   const [selectedId, setSelectedId] = useState(null)
   const [transformMode, setTransformMode] = useState('translate')
   const [loading, setLoading] = useState(null) // { message, progress }
   const { toasts, toast } = useToast()
 
-  // Sync objects state from scene
+  // 把場景內的物件資料同步到 React 狀態，讓右側面板可以即時更新。
   const syncObjects = useCallback(() => {
     if (!sceneRef.current) return
     setObjects(new Map(sceneRef.current.objects))
   }, [])
 
-  // Init scene
+  // 初始化 Three.js 場景，只在元件第一次掛載時建立一次。
   useEffect(() => {
     if (!canvasRef.current || sceneRef.current) return
     const sm = new SceneManager(canvasRef.current)
@@ -37,7 +39,7 @@ export default function App() {
     return () => { sm.destroy(); sceneRef.current = null }
   }, [])
 
-  // Ctrl+S
+  // 監聽 Ctrl/Cmd + S，讓使用者可以快速儲存專案。
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -49,7 +51,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // === IFC ===
+  // === IFC 檔案載入 ===
   const handleOpenIFC = () => ifcInputRef.current?.click()
 
   const handleIFCFile = async (file) => {
@@ -70,7 +72,7 @@ export default function App() {
     }
   }
 
-  // === GLB ===
+  // === GLB / GLTF 模型載入 ===
   const handleOpenGLB = () => glbInputRef.current?.click()
 
   const handleGLBFile = async (file) => {
@@ -88,19 +90,19 @@ export default function App() {
     }
   }
 
-  // === Transform mode ===
+  // === 變換模式切換 ===
   const handleTransformMode = (mode) => {
     setTransformMode(mode)
     sceneRef.current?.setTransformMode(mode)
   }
 
-  // === Select from panel ===
+  // === 從物件面板選取物件 ===
   const handlePanelSelect = (id) => {
     sceneRef.current?.selectById(id)
     setSelectedId(id)
   }
 
-  // === Delete ===
+  // === 刪除已選取物件 ===
   const handleDelete = () => {
     if (!selectedId || !sceneRef.current) return
     const obj = sceneRef.current.objects.get(selectedId)
@@ -113,7 +115,7 @@ export default function App() {
     toast('物件已刪除', 'info')
   }
 
-  // === Save ===
+  // === 儲存專案 ===
   const handleSave = () => {
     if (!sceneRef.current) return
     const data = sceneRef.current.exportProjectFull()
@@ -127,7 +129,7 @@ export default function App() {
     toast('專案已儲存', 'success')
   }
 
-  // === Load project ===
+  // === 載入專案檔 ===
   const handleLoadProject = () => projectInputRef.current?.click()
 
   const handleProjectFile = async (file) => {
@@ -142,7 +144,7 @@ export default function App() {
     }
   }
 
-  // === Drag & drop ===
+  // === 拖曳匯入檔案 ===
   const handleFileDrop = (files) => {
     for (const file of files) {
       const ext = file.name.split('.').pop().toLowerCase()
@@ -153,7 +155,7 @@ export default function App() {
     }
   }
 
-  // === Fit view ===
+  // === 重置視角 ===
   const handleFitView = () => sceneRef.current?.fitToScene()
 
   return (

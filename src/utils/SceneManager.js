@@ -98,6 +98,7 @@ export class SceneManager {
 
   _initRaycaster() {
     this.raycaster = new THREE.Raycaster()
+    this.raycaster.params.InstancedMesh = { threshold: 0 }
     this.raycaster.params.Mesh.threshold = 0
     this.mouse = new THREE.Vector2()
     this._isDraggingTransform = false
@@ -176,53 +177,56 @@ export class SceneManager {
 
 
   _handleClick(e) {
-    //this.renderer.domElement = Canvas
-    //get canvas information for calulate coordinate in canvas 
-    const rect = this.renderer.domElement.getBoundingClientRect()
-    this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-    this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+      const rect = this.renderer.domElement.getBoundingClientRect()
+      this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
 
-    /*
-    cemera ----> mouse -----> object
-    */
-    this.raycaster.setFromCamera(this.mouse, this.camera)
-    //all object in upload
-    const meshes = [...this.objects.values()].map(o => o.mesh)
-    const allMeshes = []
-    //filter all and collect all mesh, there are some mesh in subgroup 
-    meshes.forEach(m => m.traverse(c => { if (c.isMesh) allMeshes.push(c) }))
+      this.raycaster.setFromCamera(this.mouse, this.camera)
 
-    let hits = []
-    try { hits = this.raycaster.intersectObjects(allMeshes, false) } catch(e) { return }
-    if (hits.length === 0) { this.deselect(); return }
-
-    // Find the top-level registered object
-    let target = hits[0].object
-    let found = null
-    while (target) {
-      const id = this._getIdByMesh(target)
-      if (id){
-        found = { id, mesh: target }
-        break
-      }
-      target = target.parent
-    }
-    // Also check parents of parent (IFC groups)
-    if (!found) {
-      target = hits[0].object
-      while (target) {
-        for (const [id, obj] of this.objects.entries()) {
-          if (obj.mesh === target || obj.mesh.getObjectById(target.id)) {
-            found = { id, mesh: obj.mesh }; break
+      // IFC 用自己的 raycast
+      for (const [id, obj] of this.objects.entries()) {
+        if (obj.type === 'ifc' && obj.model) {
+          const result = obj.model.raycast(this.raycaster)
+          if (result) {
+            this.selectById(id)
+            return
           }
         }
-        if (found) break
+      }
+
+      // GLB 用原本的 raycaster
+      const meshes = [...this.objects.values()].map(o => o.mesh)
+      const allMeshes = []
+      meshes.forEach(m => m.traverse(c => {
+        if (c && c.type === 'Mesh') allMeshes.push(c)
+      }))
+
+      let hits = []
+      try { hits = this.raycaster.intersectObjects(allMeshes, false) } catch(e) { return }
+      if (hits.length === 0) { this.deselect(); return }
+
+      let target = hits[0].object
+      let found = null
+      while (target) {
+        const id = this._getIdByMesh(target)
+        if (id) { found = { id, mesh: target }; break }
         target = target.parent
       }
-    }
+      if (!found) {
+        target = hits[0].object
+        while (target) {
+          for (const [id, obj] of this.objects.entries()) {
+            if (obj.mesh === target || obj.mesh.getObjectById(target.id)) {
+              found = { id, mesh: obj.mesh }; break
+            }
+          }
+          if (found) break
+          target = target.parent
+        }
+      }
 
-    if (found) this.selectById(found.id)
-    else this.deselect()
+      if (found) this.selectById(found.id)
+      else this.deselect()
   }
 
   _getIdByMesh(mesh) {
@@ -247,6 +251,7 @@ export class SceneManager {
         c.material = this._highlightMaterial
       }
     })
+    console.log('selectById:', id, obj.mesh)
     //transformControls follow  obj.mesh 
     this.transformControls.attach(obj.mesh)
     if (this.onSelect) this.onSelect(id, obj)
@@ -272,17 +277,11 @@ export class SceneManager {
   }
 
   // === IFC ===
-  addIFCModel(model, filename) {
-    const id = `ifc_${Date.now()}`
-    model.traverse(c => {
-      if (c.isMesh) {
-        c.castShadow = true
-        c.receiveShadow = true
-      }
-    })
-    this.scene.add(model)
-    this.objects.set(id, { mesh: model, type: 'ifc', name: filename })
-    return id
+  addIFCModel({ object, model }, filename) {
+      const id = `ifc_${Date.now()}`
+      this.scene.add(object)
+      this.objects.set(id, { mesh: object, model, type: 'ifc', name: filename })
+      return id
   }
 
   // === GLB ===

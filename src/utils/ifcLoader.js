@@ -57,5 +57,5 @@ export async function loadIFCFile(file, onProgress) {
 
   // 直接回傳 model.object，不 clone
   model.object.name = file.name
-  return model.object
+  return { object: model.object, model }
 }

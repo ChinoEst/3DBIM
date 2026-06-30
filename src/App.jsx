@@ -226,6 +226,15 @@ export default function App() {
     syncObjects()
   }
 
+  const handleRename = (id, name) => {
+    try {
+      sceneRef.current?.renameObject(id, name)
+      syncObjects()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
       {/* Canvas */}
@@ -255,6 +264,7 @@ export default function App() {
         onSelect={handlePanelSelect}
         onToggleVisible={handleToggleVisible}
         onSetOpacity={handleSetOpacity}
+        onRename={handleRename}
       />
 
       {/* Drop zone */}
@@ -268,7 +278,7 @@ export default function App() {
 
       {/* Status bar */}
       <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 220,
+        position: 'absolute', bottom: 0, left: 0, right: 320,
         background: 'var(--bg-panel)',
         borderTop: '1px solid var(--border)',
         padding: '5px 16px',

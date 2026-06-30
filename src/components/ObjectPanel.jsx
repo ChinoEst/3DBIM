@@ -1,11 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 const s = {
   panel: {
     position: 'absolute',
     top: 0,
     right: 0,
-    width: 220,
+    width: 360,
     height: '100%',
     background: 'var(--bg-panel)',
     borderLeft: '1px solid var(--border)',
@@ -42,6 +42,27 @@ const s = {
     borderLeftColor: 'var(--accent)'
   },
   icon: { fontSize: 14, flexShrink: 0 },
+  renameIcon: {
+    fontSize: 14,
+    flexShrink: 0,
+    cursor: 'pointer',
+    padding: '4px',
+    borderRadius: 4,
+    color: 'var(--text-secondary)',
+    transition: 'background 0.1s, color 0.1s'
+  },
+  fileName: {
+    fontSize: 10,
+    color: 'var(--text-muted)',
+    padding: '2px 6px',
+    borderRadius: 999,
+    background: 'var(--bg-surface)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: 130,
+    flexShrink: 0
+  },
   name: {
     flex: 1,
     overflow: 'hidden',
@@ -50,12 +71,16 @@ const s = {
     color: 'var(--text-primary)',
     fontSize: 12
   },
-  badge: {
-    fontSize: 10,
-    padding: '2px 5px',
-    borderRadius: 3,
-    background: 'var(--bg-surface)',
+  editWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+    minWidth: 0
+  },
+  bracket: {
     color: 'var(--text-muted)',
+    fontSize: 14,
     flexShrink: 0
   },
   empty: {
@@ -111,21 +136,53 @@ const s = {
     color: 'var(--text-muted)',
     minWidth: 30,
     textAlign: 'right'
+  },
+  renameRow: {
+    padding: '12px 16px',
+    borderTop: '1px solid var(--border)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6
+  },
+  renameLabel: {
+    fontSize: 10,
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase'
+  },
+  renameInput: {
+    width: '100%',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    padding: '8px 10px',
+    background: 'var(--bg-surface)',
+    color: 'var(--text-primary)'
   }
 }
 
 
-export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVisible, onSetOpacity }) {
+export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVisible, onSetOpacity, onRename }) {
+  const [editingId, setEditingId] = useState(null)
+  const [editingName, setEditingName] = useState('')
+
   //map to dict, filter by type, render list
   const ifcObjs = [...objects.entries()].filter(([, o]) => o.type === 'ifc')
   const glbObjs = [...objects.entries()].filter(([, o]) => o.type === 'glb')
 
-  
+  const commitName = (id) => {
+    if (!id) return
+    onRename(id, editingName.trim() || objects.get(id)?.name)
+    setEditingId(null)
+  }
+
   const renderItem = ([id, obj]) => {
     const isActive = id === selectedId
     const icon = obj.type === 'ifc' ? '🏗' : '🧊'
     const isVisible = obj.mesh.visible !== false
     const opacity = obj.opacity ?? 1
+    const isEditing = editingId === id
+
     return (
       <div
         key={id}
@@ -134,16 +191,47 @@ export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVis
         onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-panel-hover)' }}
         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
       >
-        <span style={s.icon}>{icon}</span>
-        <span style={s.name} title={obj.name}>{obj.name}</span>
-        <span style={s.badge}>{obj.type.toUpperCase()}</span>
-        <span
-          style={{ ...s.icon, cursor: 'pointer', opacity: isVisible ? 1 : 0.4 }}
-          onClick={(e) => { e.stopPropagation(); onToggleVisible(id) }}
-          title={isVisible ? '隱藏' : '顯示'}
-        >
-          {isVisible ? '👁' : '🚫'}
-        </span>
+        {isEditing ? (
+          <input
+            autoFocus
+            type="text"
+            value={editingName}
+            onChange={(e) => setEditingName(e.target.value)}
+            onBlur={() => commitName(id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitName(id)
+              if (e.key === 'Escape') setEditingId(null)
+            }}
+            style={{ ...s.renameInput, width: '100%' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <>
+            <span style={s.icon}>{icon}</span>
+            <span style={s.name} title={obj.name}>{obj.name}</span>
+            <span style={s.fileName} title={obj.fileName || obj.name}>{obj.fileName || obj.name}</span>
+            <span
+              style={s.renameIcon}
+              title="編輯名稱"
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditingId(id)
+                setEditingName(obj.name)
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-panel-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              ✏️
+            </span>
+            <span
+              style={{ ...s.icon, cursor: 'pointer', opacity: isVisible ? 1 : 0.4 }}
+              onClick={(e) => { e.stopPropagation(); onToggleVisible(id) }}
+              title={isVisible ? '隱藏' : '顯示'}
+            >
+              {isVisible ? '👁' : '🚫'}
+            </span>
+          </>
+        )}
         <div style={s.opacityRow} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
           <input
             type="range"

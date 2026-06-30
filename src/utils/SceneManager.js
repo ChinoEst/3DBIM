@@ -516,6 +516,16 @@ export class SceneManager {
       console.error(error)
     }
   }
+
+  renameObject(id, name) {
+    try {
+      const obj = this.objects.get(id)
+      if (!obj) return
+      obj.name = name
+    } catch (error) {
+      console.error(error)
+    }
+  }
   
   addIFCModel({ object, model, fragmentBytes }, filename) {
     try {

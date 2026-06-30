@@ -130,13 +130,29 @@ export default function App() {
 
   const handleProjectFile = async (file) => {
     try {
+      // TODO: 之後改成彈出對話框詢問使用者是否要儲存目前場景
+      if (sceneRef.current.objects.size > 0) {
+        sceneRef.current.clearAll()
+      }
+
       const text = await file.text()
       const data = JSON.parse(text)
-      sceneRef.current?.applyProjectTransforms(data)
+
+      if (data.version === 2) {
+        setLoading({ message: '還原專案中…', progress: null })
+        await sceneRef.current.loadProjectFull(data)
+        setLoading(null)
+      } else {
+        // 舊版 json，只有座標沒有幾何資料
+        sceneRef.current?.applyProjectTransforms(data)
+      }
+
+      sceneRef.current.fitToScene()
       syncObjects()
       toast('專案還原完成', 'success')
     } catch (err) {
       toast(`專案開啟失敗：${err.message}`, 'error')
+      setLoading(null)
     }
   }
 

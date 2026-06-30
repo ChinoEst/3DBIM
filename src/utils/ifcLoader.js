@@ -57,6 +57,14 @@ export async function loadIFCFile(file, onProgress) {
 
   // 直接回傳 model.object，不 clone
   model.object.name = file.name
-  return { object: model.object, model }
+  return { object: model.object, model, fragmentBytes }
+}
+
+export async function loadFragmentBytes(fragmentBytes, modelId) {
+  const frags = getFragments()
+  const model = await frags.load(fragmentBytes, { modelId })
+  await frags.update(true)
+  model.object.name = modelId
+  return { object: model.object, model, fragmentBytes }
 }
 

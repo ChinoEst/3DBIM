@@ -2,7 +2,27 @@
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { getFragments } from './ifcLoader.js'
+import { getFragments, loadFragmentBytes } from './ifcLoader.js'
+
+function arrayBufferToBase64(buffer) {
+  let binary = ''
+  const bytes = new Uint8Array(buffer)
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes.buffer
+}
+
+
 
 export class SceneManager {
   constructor(canvas) {
@@ -295,17 +315,17 @@ export class SceneManager {
   }
 
   // === IFC ===
-  addIFCModel({ object, model }, filename) {
-      const id = `ifc_${Date.now()}`
-      model.useCamera(this.camera)
-      this.scene.add(object)
-      this.objects.set(id, { mesh: object, model, type: 'ifc', name: filename })
-      return id
-  }
+  addIFCModel({ object, model, fragmentBytes }, filename) {
+    const id = `ifc_${Date.now()}`
+    model.useCamera(this.camera)
+    this.scene.add(object)
+    this.objects.set(id, { mesh: object, model, fragmentBytes, type: 'ifc', name: filename })
+    return id
+}
 
   // === GLB ===
   async loadGLB(file) {
-    //not suppose async/await
+    const fileBuffer = await file.arrayBuffer()
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file)
       const loader = new GLTFLoader()
@@ -327,7 +347,7 @@ export class SceneManager {
         model.position.y = 0
 
         this.scene.add(model)
-        this.objects.set(id, { mesh: model, type: 'glb', name: file.name })
+        this.objects.set(id, { mesh: model, fileBuffer, type: 'glb', name: file.name })
         resolve(id)
       }, undefined, reject)
     })
@@ -351,8 +371,15 @@ export class SceneManager {
         }
       })
     }
-
+    
     this.objects.delete(id)
+  }
+
+  clearAll() {
+    const ids = [...this.objects.keys()]
+    for (const id of ids) {
+      this.removeObject(id)
+    }
   }
 
   // === Camera fit ===
@@ -403,17 +430,26 @@ export class SceneManager {
   }
 
   exportProjectFull() {
-    const data = { version: 1, objects: [] }
+    const data = { version: 2, objects: [] }
     for (const [id, obj] of this.objects.entries()) {
       const m = obj.mesh
-      data.objects.push({
+      const entry = {
         id,
         type: obj.type,
         name: obj.name,
         position: m.position.toArray(),
         rotation: [m.rotation.x, m.rotation.y, m.rotation.z, m.rotation.order],
         scale: m.scale.toArray()
-      })
+      }
+      
+      if (obj.type === 'ifc' && obj.fragmentBytes) {
+        entry.fragmentData = arrayBufferToBase64(obj.fragmentBytes.buffer || obj.fragmentBytes)
+      }
+      if (obj.type === 'glb' && obj.fileBuffer) {
+        entry.fileData = arrayBufferToBase64(obj.fileBuffer)
+      }
+      
+      data.objects.push(entry)
     }
     return data
   }
@@ -427,6 +463,33 @@ export class SceneManager {
       obj.mesh.position.fromArray(saved.position)
       obj.mesh.rotation.set(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3])
       obj.mesh.scale.fromArray(saved.scale)
+    }
+  }
+
+  async loadProjectFull(data) {
+    if (!data?.objects) return
+
+    for (const saved of data.objects) {
+      if (saved.type === 'ifc' && saved.fragmentData) {
+        const buffer = base64ToArrayBuffer(saved.fragmentData)
+        const result = await loadFragmentBytes(new Uint8Array(buffer), saved.name)
+        const id = this.addIFCModel(result, saved.name)
+        const obj = this.objects.get(id)
+        obj.mesh.position.fromArray(saved.position)
+        obj.mesh.rotation.set(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3])
+        obj.mesh.scale.fromArray(saved.scale)
+      }
+
+      if (saved.type === 'glb' && saved.fileData) {
+        const buffer = base64ToArrayBuffer(saved.fileData)
+        const blob = new Blob([buffer])
+        const file = new File([blob], saved.name)
+        const id = await this.loadGLB(file)
+        const obj = this.objects.get(id)
+        obj.mesh.position.fromArray(saved.position)
+        obj.mesh.rotation.set(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3])
+        obj.mesh.scale.fromArray(saved.scale)
+      }
     }
   }
 

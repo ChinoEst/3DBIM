@@ -104,11 +104,12 @@ export class SceneManager {
     this.mouse = new THREE.Vector2()
     this._isDraggingTransform = false
 
-    this.transformControls.addEventListener('mouseDown', () => { this._isDraggingTransform = true })
-    this.transformControls.addEventListener('mouseUp', () => { this._isDraggingTransform = false })
     this.transformControls.addEventListener('dragging-changed', (e) => {
-    this.orbitControls.enabled = !e.value
-      if (!e.value) {
+      this.orbitControls.enabled = !e.value
+      if (e.value) {
+        this._isDraggingTransform = true
+      } else {
+        setTimeout(() => { this._isDraggingTransform = false }, 50)
         const frags = getFragments()
         frags.update(true)
       }
@@ -336,14 +337,21 @@ export class SceneManager {
     const obj = this.objects.get(id)
     if (!obj) return
     if (this.selectedObject === obj.mesh) this.deselect()
-    this.scene.remove(obj.mesh)
-    obj.mesh.traverse(c => {
-      if (c.isMesh) {
-        c.geometry?.dispose()
-        if (Array.isArray(c.material)) c.material.forEach(m => m.dispose())
-        else c.material?.dispose()
-      }
-    })
+
+    if (obj.type === 'ifc' && obj.model) {
+      const frags = getFragments()
+      frags.disposeModel(obj.model.modelId)
+    } else {
+      this.scene.remove(obj.mesh)
+      obj.mesh.traverse(c => {
+        if (c.isMesh) {
+          c.geometry?.dispose()
+          if (Array.isArray(c.material)) c.material.forEach(m => m.dispose())
+          else c.material?.dispose()
+        }
+      })
+    }
+
     this.objects.delete(id)
   }
 
@@ -432,6 +440,8 @@ export class SceneManager {
     this.transformControls.dispose()
   }
 }
+
+
 
 
 

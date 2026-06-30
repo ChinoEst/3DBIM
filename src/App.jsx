@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+﻿import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { SceneManager } from './utils/SceneManager.js'
 import { loadIFCFile } from './utils/ifcLoader.js'
 import Toolbar from './components/Toolbar.jsx'
@@ -63,7 +63,7 @@ export default function App() {
       sceneRef.current.addIFCModel(model, file.name)
       sceneRef.current.fitToScene()
       syncObjects()
-      toast(`✅ ${file.name} 載入完成`, 'success')
+      toast(`${file.name} 載入完成`, 'success')
     } catch (err) {
       console.error(err)
       toast(`載入 IFC 失敗：${err.message}`, 'error')
@@ -81,7 +81,7 @@ export default function App() {
       await sceneRef.current.loadGLB(file)
       sceneRef.current.fitToScene()
       syncObjects()
-      toast(`✅ ${file.name} 加入場景`, 'success')
+      toast(`${file.name} 加入場景`, 'success')
     } catch (err) {
       console.error(err)
       toast(`載入 GLB 失敗：${err.message}`, 'error')
@@ -105,10 +105,6 @@ export default function App() {
   // === 刪除已選取物件 ===
   const handleDelete = () => {
     if (!selectedId || !sceneRef.current) return
-    const obj = sceneRef.current.objects.get(selectedId)
-    if (obj?.type === 'ifc') {
-      toast('IFC 模型暫不支援刪除（需重新載入）', 'warn'); return
-    }
     sceneRef.current.removeObject(selectedId)
     setSelectedId(null)
     syncObjects()

@@ -3,11 +3,8 @@ import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { arrayBufferToBase64, base64ToArrayBuffer, pickClosest, removeObject } from '../src/utils/sceneLogic.js'
 
-
-// ===========================
-// 測試
-// ===========================
-
+//base64 round-trip corrupted saved IFC/GLB data.
+// Verifies encode -> decode returns identical bytes (incl. empty buffer).
 describe('Issue #10: base64 round-trip', () => {
   it('編碼再解碼後資料不應該改變', () => {
     const original = new Uint8Array([0, 1, 128, 255, 64]).buffer
@@ -22,6 +19,7 @@ describe('Issue #10: base64 round-trip', () => {
   })
 })
 
+// Additional tests for pickClosest and removeObject functions
 describe('Issue #5: IFC/GLB 重疊選取', () => {
   it('IFC 比較近時應選 IFC', () => {
     expect(pickClosest({ id: 'ifc_1', distance: 5 }, { id: 'glb_1', distance: 10 })).toBe('ifc_1')
@@ -40,6 +38,7 @@ describe('Issue #5: IFC/GLB 重疊選取', () => {
   })
 })
 
+// Additional tests for removeObject function
 describe('Issue #9: IFC 刪除邏輯', () => {
   it('IFC 物件應呼叫 disposeModel，不能呼叫 scene.remove', () => {
     const frags = { disposeModel: vi.fn() }
@@ -64,6 +63,8 @@ describe('Issue #9: IFC 刪除邏輯', () => {
   })
 })
 
+
+// Additional test to ensure worker.mjs exists in public directory
 describe('Issue #2: public/worker.mjs 必須存在', () => {
   it('worker.mjs 應該在 public/ 目錄下', () => {
     const workerPath = resolve(process.cwd(), 'public/worker.mjs')
@@ -71,7 +72,10 @@ describe('Issue #2: public/worker.mjs 必須存在', () => {
   })
 })
 
+
+// Additional tests for edge cases
 describe('Additional logic edge cases', () => {
+   
   it('pickClosest prefers IFC when distances are equal', () => {
     expect(pickClosest({ id: 'ifc', distance: 5 }, { id: 'glb', distance: 5 })).toBe('ifc')
   })

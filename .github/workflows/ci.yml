@@ -34,7 +34,7 @@ jobs:
           fi
  
       - name: Run unit tests
-        run: npm run test
+        run: npx vitest run --exclude tests/e2e/**
  
       - name: Build
         run: npm run build

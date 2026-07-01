@@ -1,43 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
+import { arrayBufferToBase64, base64ToArrayBuffer, pickClosest, removeObject } from '../src/utils/sceneLogic.js'
 
-// ===== 兩個工具函式（先從 sceneManager 複製過來) =====
-function arrayBufferToBase64(buffer) {
-  let binary = ''
-  const bytes = new Uint8Array(buffer)
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
-  return btoa(binary)
-}
-
-function base64ToArrayBuffer(base64) {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes.buffer
-}
-
-// ===== 選取邏輯（從 _handleClick 抽出) =====
-function pickClosest(ifcResult, glbHit) {
-  let bestId = null, bestDist = Infinity
-  if (ifcResult && ifcResult.distance < bestDist) {
-    bestDist = ifcResult.distance
-    bestId = ifcResult.id
-  }
-  if (glbHit && glbHit.distance < bestDist) {
-    bestId = glbHit.id
-  }
-  return bestId
-}
-
-// ===== 刪除邏輯 =====
-function removeObject(obj, scene, frags) {
-  if (obj.type === 'ifc' && obj.model) {
-    frags.disposeModel(obj.model.modelId)
-  } else {
-    scene.remove(obj.mesh)
-  }
-}
 
 // ===========================
 // 測試

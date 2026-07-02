@@ -1,4 +1,45 @@
 import React, { useState } from 'react'
+import * as THREE from 'three'
+import InfoModal from './InfoModal.jsx'
+
+// 直接 traverse 真實的 Three.js mesh reference 算統計資料，不用額外呼叫 SceneManager
+function computeStats(id, obj) {
+  try {
+    let triangles = 0
+    let meshCount = 0
+    const materialUuids = new Set()
+
+    obj.mesh.traverse((c) => {
+      if (!c.isMesh) return
+      meshCount++
+      const geo = c.geometry
+      if (geo) {
+        if (geo.index) triangles += geo.index.count / 3
+        else if (geo.attributes?.position) triangles += geo.attributes.position.count / 3
+      }
+      const mats = Array.isArray(c.material) ? c.material : [c.material]
+      mats.forEach((m) => { if (m) materialUuids.add(m.uuid) })
+    })
+
+    const box = new THREE.Box3().setFromObject(obj.mesh)
+    const size = box.isEmpty() ? null : box.getSize(new THREE.Vector3())
+
+    return {
+      id,
+      type: obj.type,
+      name: obj.name,
+      fileName: obj.fileName || obj.name,
+      meshCount,
+      triangleCount: triangles,
+      materialCount: materialUuids.size,
+      size,
+      opacity: obj.opacity ?? 1
+    }
+  } catch (error) {
+    console.error(error)
+    return null
+  }
+}
 
 const s = {
   panel: {
@@ -29,13 +70,15 @@ const s = {
     padding: '8px 0'
   },
   item: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
     padding: '7px 16px',
     cursor: 'pointer',
     transition: 'background 0.1s',
     borderLeft: '3px solid transparent'
+  },
+  itemRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8
   },
   itemActive: {
     background: 'var(--accent-dim)',
@@ -50,6 +93,21 @@ const s = {
     borderRadius: 4,
     color: 'var(--text-secondary)',
     transition: 'background 0.1s, color 0.1s'
+  },
+  infoIcon: {
+    fontSize: 11,
+    fontWeight: 700,
+    flexShrink: 0,
+    cursor: 'pointer',
+    width: 16,
+    height: 16,
+    borderRadius: '50%',
+    border: '1px solid var(--text-muted)',
+    color: 'var(--text-muted)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.1s, color 0.1s, border-color 0.1s'
   },
   fileName: {
     fontSize: 10,
@@ -158,13 +216,51 @@ const s = {
     padding: '8px 10px',
     background: 'var(--bg-surface)',
     color: 'var(--text-primary)'
+  },
+  meshList: {
+    margin: '4px 0 6px 22px',
+    paddingLeft: 8,
+    borderLeft: '1px solid var(--border)'
+  },
+  meshItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '5px 8px',
+    cursor: 'pointer',
+    borderRadius: 4,
+    fontSize: 11,
+    color: 'var(--text-secondary)'
+  },
+  meshItemActive: {
+    background: 'var(--accent-dim)',
+    color: 'var(--text-primary)'
+  },
+  meshName: {
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  colorInput: {
+    width: 22,
+    height: 18,
+    padding: 0,
+    border: '1px solid var(--border)',
+    borderRadius: 3,
+    cursor: 'pointer',
+    background: 'none'
   }
 }
 
 
-export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVisible, onSetOpacity, onRename }) {
+export default function ObjectPanel({
+  objects, selectedId, onSelect, onToggleVisible, onSetOpacity, onRename,
+  meshList = [], selectedMeshId, onSelectMesh, onSetMeshColor
+}) {
   const [editingId, setEditingId] = useState(null)
   const [editingName, setEditingName] = useState('')
+  const [infoId, setInfoId] = useState(null)
 
   //map to dict, filter by type, render list
   const ifcObjs = [...objects.entries()].filter(([, o]) => o.type === 'ifc')
@@ -192,6 +288,7 @@ export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVis
         onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-panel-hover)' }}
         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
       >
+        <div style={s.itemRow}>
         {isEditing ? (
           <input
             autoFocus
@@ -225,6 +322,15 @@ export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVis
               ✏️
             </span>
             <span
+              style={s.infoIcon}
+              title="檔案資訊"
+              onClick={(e) => { e.stopPropagation(); setInfoId(id) }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-panel-hover)'; e.currentTarget.style.color = 'var(--text-primary)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' }}
+            >
+              i
+            </span>
+            <span
               style={{ ...s.icon, cursor: 'pointer', opacity: isVisible ? 1 : 0.4 }}
               onClick={(e) => { e.stopPropagation(); onToggleVisible(id) }}
               title={isVisible ? '隱藏' : '顯示'}
@@ -233,6 +339,7 @@ export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVis
             </span>
           </>
         )}
+        </div>
         <div style={s.opacityRow} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
           <input
             type="range"
@@ -246,11 +353,43 @@ export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVis
           />
           <span style={s.opacityValue}>{Math.round(opacity * 100)}%</span>
         </div>
+
+        {/* 選中物件底下的 mesh 子清單：點選單一 mesh 加綠色邊框標示，並可單獨改色 */}
+        {isActive && meshList.length > 0 && (
+          <div style={s.meshList} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            {meshList.map((m) => {
+              const isMeshActive = m.id === selectedMeshId
+              return (
+                <div
+                  key={m.id}
+                  style={{ ...s.meshItem, ...(isMeshActive ? s.meshItemActive : {}) }}
+                  onClick={() => onSelectMesh(m.id)}
+                >
+                  <span style={s.meshName} title={m.name}>{m.name}</span>
+                  {isMeshActive && (
+                    <input
+                      type="color"
+                      defaultValue="#4f8ef7"
+                      title="改變此 mesh 的顏色"
+                      onChange={(e) => onSetMeshColor(m.id, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={s.colorInput}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     )
   }
 
+  const infoObj = infoId ? objects.get(infoId) : null
+  const infoStats = infoObj ? computeStats(infoId, infoObj) : null
+
   return (
+    <>
     <div style={s.panel}>
       <div style={s.header}>📋 場景物件</div>
       <div style={s.list}>
@@ -296,5 +435,7 @@ export default function ObjectPanel({ objects, selectedId, onSelect, onToggleVis
         ))}
       </div>
     </div>
+    {infoStats && <InfoModal stats={infoStats} onClose={() => setInfoId(null)} />}
+    </>
   )
 }

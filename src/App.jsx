@@ -17,6 +17,8 @@ export default function App() {
 
   const [objects, setObjects] = useState(new Map())
   const [selectedId, setSelectedId] = useState(null)
+  const [meshList, setMeshList] = useState([])
+  const [selectedMeshId, setSelectedMeshId] = useState(null)
   const [transformMode, setTransformMode] = useState('translate')
   const [loading, setLoading] = useState(null) // { message, progress }
   const { toasts, toast } = useToast()
@@ -54,6 +56,39 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])
+
+  // 選取物件切換時，重新抓該物件底下的 mesh 清單，並重置子選取狀態
+  useEffect(() => {
+    if (!selectedId || !sceneRef.current) {
+      setMeshList([])
+      setSelectedMeshId(null)
+      return
+    }
+    setMeshList(sceneRef.current.listMeshes(selectedId))
+    setSelectedMeshId(null)
+    sceneRef.current.deselectMesh()
+  }, [selectedId])
+
+  // === 清單子選取：點選單一 mesh ===
+  const handleSelectMesh = (meshUuid) => {
+    try {
+      if (!selectedId || !sceneRef.current) return
+      sceneRef.current.selectMesh(selectedId, meshUuid)
+      setSelectedMeshId(meshUuid)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // === 改變單一 mesh 顏色 ===
+  const handleMeshColor = (meshUuid, hexColor) => {
+    try {
+      if (!selectedId || !sceneRef.current) return
+      sceneRef.current.setMeshColor(selectedId, meshUuid, hexColor)
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   // === IFC 檔案載入 ===
   const handleOpenIFC = () => ifcInputRef.current?.click()
@@ -265,6 +300,10 @@ export default function App() {
         onToggleVisible={handleToggleVisible}
         onSetOpacity={handleSetOpacity}
         onRename={handleRename}
+        meshList={meshList}
+        selectedMeshId={selectedMeshId}
+        onSelectMesh={handleSelectMesh}
+        onSetMeshColor={handleMeshColor}
       />
 
       {/* Drop zone */}

@@ -200,9 +200,167 @@ export class SceneManager {
         transparent: true,
         opacity: 0.85
       })
+      // 選取邊框用材質：虛線、橘黃色，跟藍色高亮做出區隔
+      this._outlineMaterial = new THREE.LineDashedMaterial({
+        color: 0xffaa00,
+        dashSize: 0.15,
+        gapSize: 0.08
+      })
+      // 記錄目前場景中所有選取邊框，deselect 時要逐一清除+dispose
+      this._selectionOutlines = []
+
+      // 清單「單一 mesh 子選取」用的邊框材質：綠色虛線，跟物件級的橘黃色做出區隔
+      this._subOutlineMaterial = new THREE.LineDashedMaterial({
+        color: 0x00ff88,
+        dashSize: 0.08,
+        gapSize: 0.05
+      })
+      this._subSelectionOutline = null // 目前被清單選取的單一 mesh 邊框
+      this._subSelectionOutlineInScene = false // 邊框是掛在 scene(世界座標) 還是掛在 mesh 底下
+      this._selectedMeshRef = null // 目前被清單選取的單一 mesh reference
     } catch (error) {
       console.error(error)
       throw error
+    }
+  }
+
+  // 幫單一 mesh 加上虛線邊框（不影響原本 material）
+  _addOutlineTo(mesh) {
+    try {
+      if (!mesh.geometry) return
+      const edges = new THREE.EdgesGeometry(mesh.geometry, 25) // 25 度角閾值，濾掉曲面上太細碎的邊
+      const outline = new THREE.LineSegments(edges, this._outlineMaterial)
+      outline.computeLineDistances() // 虛線材質一定要算距離，不然會整條顯示成實線
+      outline.renderOrder = 999
+      mesh.add(outline)
+      this._selectionOutlines.push(outline)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 清除所有選取邊框並釋放 geometry
+  _clearOutlines() {
+    try {
+      for (const outline of this._selectionOutlines) {
+        outline.parent?.remove(outline)
+        outline.geometry.dispose()
+      }
+      this._selectionOutlines = []
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // === 子清單：單一 mesh 選取與改色 ===
+
+  // 取得指定物件底下所有可選取 mesh 的清單（回傳可序列化資料，給 React 用）
+  listMeshes(objectId) {
+    try {
+      const obj = this.objects.get(objectId)
+      if (!obj) return []
+      const list = []
+      let counter = 0
+      obj.mesh.traverse(c => {
+        // isMesh 也會抓到 IFC 的 InstancedMesh；這是預期內的，只是改色/邊框會套用到整批 instance
+        if (c.isMesh) {
+          list.push({ id: c.uuid, name: c.name || `Mesh_${counter++}` })
+        }
+      })
+      return list
+    } catch (error) {
+      console.error(error)
+      return []
+    }
+  }
+
+  _findMeshByUuid(objectId, meshUuid) {
+    try {
+      const obj = this.objects.get(objectId)
+      if (!obj) return null
+      let found = null
+      obj.mesh.traverse(c => {
+        if (!found && c.isMesh && c.uuid === meshUuid) found = c
+      })
+      return found
+    } catch (error) {
+      console.error(error)
+      return null
+    }
+  }
+
+  // 從清單點選單一 mesh：加上綠色邊框標示，跟物件級選取（橘黃邊框）分開，不互相干擾
+  selectMesh(objectId, meshUuid) {
+    try {
+      this.deselectMesh() // 先清掉上一個被清單選取的 mesh
+      const mesh = this._findMeshByUuid(objectId, meshUuid)
+      if (!mesh || !mesh.geometry) return
+
+      this._selectedMeshRef = mesh
+
+      if (mesh.isInstancedMesh) {
+        // IFC 元件通常是 InstancedMesh：同一份 geometry 被多個構件共用，各自用 instance matrix 定位。
+        // EdgesGeometry 只能反映單一 local geometry 的形狀，沒辦法對應每個 instance 的實際世界座標，
+        // 所以這裡改用「整批 instance 的世界座標包圍盒」畫一個虛線框，涵蓋這個 batch 涉及的範圍。
+        // 缺點：不是每個構件各自精準描邊，而且是選取當下算好的，之後移動物件框線不會跟著更新。
+        const box = new THREE.Box3().setFromObject(mesh)
+        if (box.isEmpty()) return
+        const size = box.getSize(new THREE.Vector3())
+        const center = box.getCenter(new THREE.Vector3())
+        const boxGeo = new THREE.BoxGeometry(size.x, size.y, size.z)
+        const edges = new THREE.EdgesGeometry(boxGeo)
+        const outline = new THREE.LineSegments(edges, this._subOutlineMaterial)
+        outline.position.copy(center)
+        outline.computeLineDistances()
+        outline.renderOrder = 1000
+        // 直接掛在 scene 底下（世界座標），不跟著 mesh 的 local transform 走
+        this.scene.add(outline)
+        this._subSelectionOutline = outline
+        this._subSelectionOutlineInScene = true
+      } else {
+        const edges = new THREE.EdgesGeometry(mesh.geometry, 25)
+        const outline = new THREE.LineSegments(edges, this._subOutlineMaterial)
+        outline.computeLineDistances()
+        outline.renderOrder = 1000 // 比物件級邊框(999)更高，確保疊在最上層看得到
+        mesh.add(outline)
+        this._subSelectionOutline = outline
+        this._subSelectionOutlineInScene = false
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  deselectMesh() {
+    try {
+      if (this._subSelectionOutline) {
+        if (this._subSelectionOutlineInScene) {
+          this.scene.remove(this._subSelectionOutline)
+        } else {
+          this._subSelectionOutline.parent?.remove(this._subSelectionOutline)
+        }
+        this._subSelectionOutline.geometry.dispose()
+        this._subSelectionOutline = null
+      }
+      this._selectedMeshRef = null
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 改變單一 mesh 的顏色。第一次改色時會 clone material，
+  // 避免多個 mesh 共用同一份 material 實例時改色互相連坐。
+  setMeshColor(objectId, meshUuid, hexColor) {
+    try {
+      const mesh = this._findMeshByUuid(objectId, meshUuid)
+      if (!mesh || !mesh.material) return
+      if (!mesh.userData.__ownMaterial) {
+        mesh.material = mesh.material.clone()
+        mesh.userData.__ownMaterial = true
+      }
+      mesh.material.color.set(hexColor)
+    } catch (error) {
+      console.error(error)
     }
   }
 
@@ -395,6 +553,7 @@ export class SceneManager {
   selectById(id) {
     try {
       this.deselect()
+      this.deselectMesh() // 換選取物件時，清單子選取狀態也要重置
       const obj = this.objects.get(id)
       if (!obj) return
       this.selectedObject = obj.mesh
@@ -406,6 +565,7 @@ export class SceneManager {
           this._originalMaterials.set(c.uuid, c.material)
           //change to Highlight
           c.material = this._highlightMaterial
+          // 注意：整物件選取只變色，不加邊框；邊框只給清單選取的單一 mesh 用（見 selectMesh）
         }
       })
 
@@ -425,6 +585,9 @@ export class SceneManager {
   deselect() {
     try {
       if (!this.selectedObject) return
+      // 先清掉所有選取邊框，避免殘留在場景裡
+      this._clearOutlines()
+      this.deselectMesh()
       // Restore materials
       this.selectedObject.traverse(c => {
         if (c.isMesh && this._originalMaterials.has(c.uuid)) {
@@ -580,6 +743,7 @@ export class SceneManager {
       const obj = this.objects.get(id)
       if (!obj) return
       if (this.selectedObject === obj.mesh) this.deselect()
+      this.deselectMesh()
 
       if (obj.type === 'ifc' && obj.model) {
         const frags = getFragments()
@@ -730,12 +894,3 @@ export class SceneManager {
     }
   }
 }
-
-
-
-
-
-
-
-
-

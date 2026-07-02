@@ -85,6 +85,7 @@ export default function Toolbar({
   onCemera,
   onFitView,
   onDeleteSelected,
+  onDeleteAll,
   hasSelection
 }) {
   return (
@@ -114,13 +115,15 @@ export default function Toolbar({
         onClick={() => onTransformMode('scale')}
         title="縮放 (R)"
       />
-
+      
       {hasSelection && (
         <>
           <div style={styles.divider} />
           <ToolBtn icon="🗑" label="刪除" onClick={onDeleteSelected} variant="danger" title="刪除選取物件 (Del)" />
         </>
       )}
+
+      <ToolBtn icon="🗑" label="全部刪除" onClick={onDeleteAll} variant="danger" title="刪除所有物件" />
 
       <div style={styles.divider} />
       <span style={styles.label}>專案</span>

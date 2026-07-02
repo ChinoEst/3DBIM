@@ -927,6 +927,8 @@ export class SceneManager {
     }
   }
 
+  
+
   //clear all resource
   destroy() {
     try {

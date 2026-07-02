@@ -166,6 +166,8 @@ export default function App() {
     }
   }
 
+
+
   // === 儲存專案 ===
   const handleSave = () => {
     try {
@@ -220,6 +222,28 @@ export default function App() {
     } catch (err) {
       toast(`專案開啟失敗：${err.message}`, 'error')
       setLoading(null)
+    }
+  }
+
+  // === 刪除所有物件 ===
+  const handleDeleteAll = () => {
+    try {
+      if (sceneRef.current.objects.size > 0) {
+        const wantSave = confirm('是否要先儲存目前場景？')
+        if (wantSave) {
+          handleSave()
+        } else {
+          const confirmDiscard = confirm('確定要放棄目前場景並載入新專案嗎？')
+          if (!confirmDiscard) return
+        }
+        sceneRef.current.clearAll()
+      }
+      setSelectedId(null)
+      syncObjects()
+      toast('已刪除所有物件', 'info')
+    } catch (err) {
+      console.error(err)
+      toast('刪除所有物件失敗', 'error')
     }
   }
 
@@ -292,6 +316,7 @@ export default function App() {
         onCemera={handleCemera}
         onFitView={handleFitView}
         onDeleteSelected={handleDelete}
+        onDeleteAll={handleDeleteAll}
         hasSelection={!!selectedId}
       />
 

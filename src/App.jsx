@@ -5,6 +5,8 @@ import Toolbar from './components/Toolbar.jsx'
 import ObjectPanel from './components/ObjectPanel.jsx'
 import LoadingOverlay from './components/LoadingOverlay.jsx'
 import DropZone from './components/DropZone.jsx'
+import SectionPanel from './components/SectionPanel.jsx'
+import IfcPropertyPanel from './components/IfcPropertyPanel.jsx'
 import { useToast, ToastContainer } from './components/Toast.jsx'
 
 
@@ -23,11 +25,41 @@ export default function App() {
   const [loading, setLoading] = useState(null) // { message, progress }
   const { toasts, toast } = useToast()
 
+  // === 剖面裁切 ===
+  const [sectionOpen, setSectionOpen] = useState(false)
+  const [sectionState, setSectionState] = useState({
+    x: { enabled: false, position: 0, flipped: false },
+    y: { enabled: false, position: 0, flipped: false },
+    z: { enabled: false, position: 0, flipped: false }
+  })
+  const [sceneBounds, setSceneBounds] = useState(null)
+  const sectionActive = sectionState.x.enabled || sectionState.y.enabled || sectionState.z.enabled
+
+  // === IFC 屬性查詢 ===
+  const [queryMode, setQueryMode] = useState(false)
+  const [elementQuery, setElementQuery] = useState(null) // { loading, error, data, objName }
+
+  // === 右側物件面板寬度（可拖曳），記住使用者上次調整的寬度 ===
+  const [panelWidth, setPanelWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('bim-panel-width'))
+      return saved && saved > 0 ? saved : 360
+    } catch {
+      return 360
+    }
+  })
+
+  const handlePanelResize = useCallback((w) => {
+    setPanelWidth(w)
+    try { localStorage.setItem('bim-panel-width', String(w)) } catch { /* 忽略無法寫入的環境（例如無痕模式） */ }
+  }, [])
+
   
   const syncObjects = useCallback(() => {
     if (!sceneRef.current) return
     //sceneRef.current.objects = SceneManager.object
     setObjects(new Map(sceneRef.current.objects))
+    setSceneBounds(sceneRef.current.getSceneBounds())
   }, [])
 
   // 初始化 Three.js 場景，只在元件第一次掛載時建立一次。
@@ -38,6 +70,7 @@ export default function App() {
       //sm.on_select = lambda id: set_selected_id(id) in py
       sm.onSelect = (id) => setSelectedId(id)
       sm.onDeselect = () => setSelectedId(null)
+      sm.onElementQuery = (objId, localId) => handleElementQuery(objId, localId)
       sceneRef.current = sm
       return () => { sm.destroy(); sceneRef.current = null }
     } catch (err) {
@@ -297,6 +330,74 @@ export default function App() {
     }
   }
 
+  // === 剖面裁切 ===
+  const handleToggleSection = () => {
+    setSectionOpen(open => {
+      const next = !open
+      if (next) setSceneBounds(sceneRef.current?.getSceneBounds() ?? null)
+      return next
+    })
+  }
+
+  const handleToggleAxis = (axis, enabled) => {
+    try {
+      sceneRef.current?.setSectionEnabled(axis, enabled)
+      setSectionState(sceneRef.current.getSectionState())
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleChangePosition = (axis, position) => {
+    try {
+      sceneRef.current?.setSectionPosition(axis, position)
+      setSectionState(sceneRef.current.getSectionState())
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleToggleFlip = (axis, flipped) => {
+    try {
+      sceneRef.current?.setSectionFlip(axis, flipped)
+      setSectionState(sceneRef.current.getSectionState())
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleResetSection = () => {
+    try {
+      sceneRef.current?.resetSection()
+      setSectionState(sceneRef.current.getSectionState())
+      toast('剖面已重置', 'info')
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // === IFC 屬性查詢 ===
+  const handleToggleQuery = () => {
+    setQueryMode(prev => {
+      const next = !prev
+      sceneRef.current?.setQueryMode(next)
+      toast(next ? '屬性查詢模式已開啟，點擊 IFC 元件查看屬性' : '屬性查詢模式已關閉', 'info')
+      return next
+    })
+  }
+
+  const handleElementQuery = async (objId, localId) => {
+    const objName = sceneRef.current?.objects?.get(objId)?.name
+    setElementQuery({ loading: true, error: null, data: null, objName })
+    try {
+      const data = await sceneRef.current.getElementProperties(objId, localId)
+      setElementQuery({ loading: false, error: null, data, objName })
+    } catch (err) {
+      console.error(err)
+      setElementQuery({ loading: false, error: err.message || '查詢失敗', data: null, objName })
+    }
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
       {/* Canvas */}
@@ -318,7 +419,30 @@ export default function App() {
         onDeleteSelected={handleDelete}
         onDeleteAll={handleDeleteAll}
         hasSelection={!!selectedId}
+        sectionOpen={sectionOpen}
+        sectionActive={sectionActive}
+        onToggleSection={handleToggleSection}
+        queryMode={queryMode}
+        onToggleQuery={handleToggleQuery}
       />
+
+      {/* 剖面裁切面板 */}
+      {sectionOpen && (
+        <SectionPanel
+          state={sectionState}
+          bounds={sceneBounds}
+          onClose={() => setSectionOpen(false)}
+          onToggleAxis={handleToggleAxis}
+          onChangePosition={handleChangePosition}
+          onToggleFlip={handleToggleFlip}
+          onReset={handleResetSection}
+        />
+      )}
+
+      {/* IFC 元件屬性查詢結果 */}
+      {elementQuery && (
+        <IfcPropertyPanel query={elementQuery} onClose={() => setElementQuery(null)} />
+      )}
 
       {/* Right panel */}
       <ObjectPanel
@@ -332,6 +456,8 @@ export default function App() {
         selectedMeshId={selectedMeshId}
         onSelectMesh={handleSelectMesh}
         onSetMeshColor={handleMeshColor}
+        width={panelWidth}
+        onResize={handlePanelResize}
       />
 
       {/* Drop zone */}
@@ -345,7 +471,7 @@ export default function App() {
 
       {/* Status bar */}
       <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 320,
+        position: 'absolute', bottom: 0, left: 0, right: panelWidth,
         background: 'var(--bg-panel)',
         borderTop: '1px solid var(--border)',
         padding: '5px 16px',

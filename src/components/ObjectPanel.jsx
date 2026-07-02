@@ -46,7 +46,6 @@ const s = {
     position: 'absolute',
     top: 0,
     right: 0,
-    width: 360,
     height: '100%',
     background: 'var(--bg-panel)',
     borderLeft: '1px solid var(--border)',
@@ -54,6 +53,20 @@ const s = {
     flexDirection: 'column',
     zIndex: 5,
     overflow: 'hidden'
+  },
+  // 拖曳把手：貼在面板最左側的一條窄長條，滑鼠移上去會變成可拖曳游標
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    left: -3,
+    width: 6,
+    height: '100%',
+    cursor: 'col-resize',
+    zIndex: 6,
+    background: 'transparent'
+  },
+  resizeHandleActive: {
+    background: 'var(--accent)'
   },
   header: {
     padding: '14px 16px 10px',
@@ -254,12 +267,42 @@ const s = {
 }
 
 
+// 面板寬度的可拖曳範圍，太窄會排不下內容，太寬會擠壓 3D 畫布
+const PANEL_MIN_WIDTH = 260
+const PANEL_MAX_WIDTH = 640
+
 export default function ObjectPanel({
   objects, selectedId, onSelect, onToggleVisible, onSetOpacity, onRename,
-  meshList = [], selectedMeshId, onSelectMesh, onSetMeshColor
+  meshList = [], selectedMeshId, onSelectMesh, onSetMeshColor,
+  width = 360, onResize
 }) {
   const [editingId, setEditingId] = useState(null)
   const [editingName, setEditingName] = useState('')
+  const [resizing, setResizing] = useState(false)
+
+  // 拖曳把手：從滑鼠按下的位置開始，往左拖會變寬（面板貼右邊界），
+  // 直接用 window 監聽 mousemove/mouseup，放開就清除監聽，避免拖出視窗外還一直觸發。
+  const handleResizeStart = (e) => {
+    e.preventDefault()
+    setResizing(true)
+    const startX = e.clientX
+    const startWidth = width
+    document.body.style.userSelect = 'none' // 拖曳中禁止選取到旁邊文字
+
+    const onMove = (moveEvent) => {
+      const delta = startX - moveEvent.clientX // 游標往左移，面板變寬
+      const next = Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, startWidth + delta))
+      if (onResize) onResize(next)
+    }
+    const onUp = () => {
+      setResizing(false)
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   const [infoId, setInfoId] = useState(null)
 
   //map to dict, filter by type, render list
@@ -390,7 +433,14 @@ export default function ObjectPanel({
 
   return (
     <>
-    <div style={s.panel}>
+    <div style={{ ...s.panel, width }}>
+      <div
+        style={{ ...s.resizeHandle, ...(resizing ? s.resizeHandleActive : {}) }}
+        onMouseDown={handleResizeStart}
+        onMouseEnter={(e) => { if (!resizing) e.currentTarget.style.background = 'var(--accent-dim)' }}
+        onMouseLeave={(e) => { if (!resizing) e.currentTarget.style.background = 'transparent' }}
+        title="拖曳調整面板寬度"
+      />
       <div style={s.header}>📋 場景物件</div>
       <div style={s.list}>
         {objects.size === 0 && (

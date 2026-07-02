@@ -369,8 +369,8 @@ export default function ObjectPanel({
                   {isMeshActive && (
                     <input
                       type="color"
-                      defaultValue="#4f8ef7"
-                      title="改變此 mesh 的顏色"
+                      value={m.color}
+                      title="變更 mesh 的顏色"
                       onChange={(e) => onSetMeshColor(m.id, e.target.value)}
                       onClick={(e) => e.stopPropagation()}
                       style={s.colorInput}

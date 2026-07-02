@@ -85,6 +85,9 @@ export default function App() {
     try {
       if (!selectedId || !sceneRef.current) return
       sceneRef.current.setMeshColor(selectedId, meshUuid, hexColor)
+      // SceneManager 內部的 material 顏色已經變了，但 meshList state 是切換選取時抓的快照，
+      // 不會自動跟著變，所以這裡手動把對應 mesh 的 color 欄位更新掉，color input 才會即時反映新顏色
+      setMeshList(prev => prev.map(m => m.id === meshUuid ? { ...m, color: hexColor } : m))
     } catch (err) {
       console.error(err)
     }

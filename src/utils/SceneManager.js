@@ -190,17 +190,11 @@ export class SceneManager {
 
   _initHighlight() {
     try {
-      this._originalMaterials = new Map()
-      this._highlightMaterial = new THREE.MeshStandardMaterial({
-        color: 0x4f8ef7,
-        emissive: 0x1a3a7a,
-        emissiveIntensity: 0.4,
-        metalness: 0.1,
-        roughness: 0.4,
-        transparent: true,
-        opacity: 0.85
-      })
-      // 選取邊框用材質：虛線、橘黃色，跟藍色高亮做出區隔
+      // 物件級選取不再用「替換 material」的方式（會造成邊緣條紋 / z-fighting），
+      // 改用「選取維持原色調，未選取物件變更淡」的透明度策略
+      this._unselectedDimFactor = 0.4 // 有東西被選取時，未選取物件的 opacity 會再乘上這個係數
+
+      // 選取邊框用材質：虛線、橘黃色（物件級選取目前不使用，保留給之後需要時擴充）
       this._outlineMaterial = new THREE.LineDashedMaterial({
         color: 0xffaa00,
         dashSize: 0.15,
@@ -209,18 +203,29 @@ export class SceneManager {
       // 記錄目前場景中所有選取邊框，deselect 時要逐一清除+dispose
       this._selectionOutlines = []
 
-      // 清單「單一 mesh 子選取」用的邊框材質：綠色虛線，跟物件級的橘黃色做出區隔
-      this._subOutlineMaterial = new THREE.LineDashedMaterial({
-        color: 0x00ff88,
-        dashSize: 0.08,
-        gapSize: 0.05
-      })
-      this._subSelectionOutline = null // 目前被清單選取的單一 mesh 邊框
-      this._subSelectionOutlineInScene = false // 邊框是掛在 scene(世界座標) 還是掛在 mesh 底下
+      // 清單「單一 mesh 子選取」原本用虛線外框標示，但在面數密集/平滑的 GLB 上
+      // EdgesGeometry 算出來的邊會很破碎，虛線疊上去會變成點狀雜訊，所以改用 opacity 淡化來標示，不再畫外框
       this._selectedMeshRef = null // 目前被清單選取的單一 mesh reference
+      this._meshDimRestore = null // mesh 層級選取時，場景中其他 mesh 變淡前的 { mesh, opacity } 記錄 (Map<uuid, {mesh, opacity}>)
     } catch (error) {
       console.error(error)
       throw error
+    }
+  }
+
+  // 設定「未選取物件」要再變淡的係數（0~1），例如 0.4 代表未選取物件的 opacity 會再乘上 0.4
+  setUnselectedDimFactor(factor) {
+    try {
+      const value = Math.min(1, Math.max(0, Number(factor)))
+      if (Number.isNaN(value)) return
+      this._unselectedDimFactor = value
+      // 若目前有選取中的物件，立即套用新的淡化係數
+      if (this.selectedObject) {
+        const id = this._getIdByMesh(this.selectedObject)
+        if (id) this._applyUnselectedDim(id)
+      }
+    } catch (error) {
+      console.error(error)
     }
   }
 
@@ -264,7 +269,9 @@ export class SceneManager {
       obj.mesh.traverse(c => {
         // isMesh 也會抓到 IFC 的 InstancedMesh；這是預期內的，只是改色/邊框會套用到整批 instance
         if (c.isMesh) {
-          list.push({ id: c.uuid, name: c.name || `Mesh_${counter++}` })
+          const material = Array.isArray(c.material) ? c.material[0] : c.material
+          const color = material?.color ? '#' + material.color.getHexString() : '#ffffff'
+          list.push({ id: c.uuid, name: c.name || `Mesh_${counter++}`, color })
         }
       })
       return list
@@ -289,7 +296,7 @@ export class SceneManager {
     }
   }
 
-  // 從清單點選單一 mesh：加上綠色邊框標示，跟物件級選取（橘黃邊框）分開，不互相干擾
+  // 從清單點選單一 mesh：用 opacity 淡化標示（該 mesh 維持原色調，其餘全場景變淡）
   selectMesh(objectId, meshUuid) {
     try {
       this.deselectMesh() // 先清掉上一個被清單選取的 mesh
@@ -297,35 +304,8 @@ export class SceneManager {
       if (!mesh || !mesh.geometry) return
 
       this._selectedMeshRef = mesh
-
-      if (mesh.isInstancedMesh) {
-        // IFC 元件通常是 InstancedMesh：同一份 geometry 被多個構件共用，各自用 instance matrix 定位。
-        // EdgesGeometry 只能反映單一 local geometry 的形狀，沒辦法對應每個 instance 的實際世界座標，
-        // 所以這裡改用「整批 instance 的世界座標包圍盒」畫一個虛線框，涵蓋這個 batch 涉及的範圍。
-        // 缺點：不是每個構件各自精準描邊，而且是選取當下算好的，之後移動物件框線不會跟著更新。
-        const box = new THREE.Box3().setFromObject(mesh)
-        if (box.isEmpty()) return
-        const size = box.getSize(new THREE.Vector3())
-        const center = box.getCenter(new THREE.Vector3())
-        const boxGeo = new THREE.BoxGeometry(size.x, size.y, size.z)
-        const edges = new THREE.EdgesGeometry(boxGeo)
-        const outline = new THREE.LineSegments(edges, this._subOutlineMaterial)
-        outline.position.copy(center)
-        outline.computeLineDistances()
-        outline.renderOrder = 1000
-        // 直接掛在 scene 底下（世界座標），不跟著 mesh 的 local transform 走
-        this.scene.add(outline)
-        this._subSelectionOutline = outline
-        this._subSelectionOutlineInScene = true
-      } else {
-        const edges = new THREE.EdgesGeometry(mesh.geometry, 25)
-        const outline = new THREE.LineSegments(edges, this._subOutlineMaterial)
-        outline.computeLineDistances()
-        outline.renderOrder = 1000 // 比物件級邊框(999)更高，確保疊在最上層看得到
-        mesh.add(outline)
-        this._subSelectionOutline = outline
-        this._subSelectionOutlineInScene = false
-      }
+      // mesh 層級也套用「選取維持原色調，其他都變更淡」的效果；範圍是整個場景（所有物件的所有 mesh）
+      this._applyMeshUnselectedDim(meshUuid)
     } catch (error) {
       console.error(error)
     }
@@ -333,34 +313,98 @@ export class SceneManager {
 
   deselectMesh() {
     try {
-      if (this._subSelectionOutline) {
-        if (this._subSelectionOutlineInScene) {
-          this.scene.remove(this._subSelectionOutline)
-        } else {
-          this._subSelectionOutline.parent?.remove(this._subSelectionOutline)
-        }
-        this._subSelectionOutline.geometry.dispose()
-        this._subSelectionOutline = null
-      }
+      this._restoreMeshUnselectedDim()
       this._selectedMeshRef = null
     } catch (error) {
       console.error(error)
     }
   }
 
+  // 讓場景中除了 selectedMeshUuid 以外的所有 mesh（包含其他物件底下的 mesh），
+  // opacity 在目前顯示值的基礎上再變淡（跟 _applyUnselectedDim 同一套邏輯，只是粒度換成整個場景的 mesh）
+  _applyMeshUnselectedDim(selectedMeshUuid) {
+    try {
+      // 記錄變淡前每個 mesh 目前的 opacity 與 mesh reference，deselectMesh 時要還原成這個值
+      this._meshDimRestore = new Map()
+      for (const obj of this.objects.values()) {
+        obj.mesh.traverse(c => {
+          if (!c.isMesh || c.uuid === selectedMeshUuid || !c.material) return
+          const materials = Array.isArray(c.material) ? c.material : [c.material]
+          const first = materials[0]
+          const current = (first && typeof first.opacity === 'number') ? first.opacity : (obj.opacity ?? 1)
+          this._meshDimRestore.set(c.uuid, { mesh: c, opacity: current })
+          this._setSingleMeshOpacity(c, current * this._unselectedDimFactor)
+        })
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 還原被 mesh 層級選取變淡的其他 mesh
+  _restoreMeshUnselectedDim() {
+    try {
+      if (!this._meshDimRestore) return
+      for (const { mesh, opacity } of this._meshDimRestore.values()) {
+        this._setSingleMeshOpacity(mesh, opacity)
+      }
+      this._meshDimRestore = null
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 對單一 mesh 套用 opacity，邏輯跟 _applyOpacityToMaterials 相同，差別是只作用在單一 mesh 上
+  _setSingleMeshOpacity(mesh, value) {
+    if (!mesh.material) return
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    materials.forEach(material => {
+      if (!material || typeof material.opacity !== 'number') return
+      material.opacity = value
+      material.transparent = value < 1
+      material.needsUpdate = true
+    })
+  }
+
   // 改變單一 mesh 的顏色。第一次改色時會 clone material，
   // 避免多個 mesh 共用同一份 material 實例時改色互相連坐。
+  // 注意：material 有可能是陣列（IFC/fragments 常見，例如不透明+半透明分層），
+  // 一定要用陣列的方式處理，不能假設一定是單一 material 物件。
   setMeshColor(objectId, meshUuid, hexColor) {
     try {
       const mesh = this._findMeshByUuid(objectId, meshUuid)
       if (!mesh || !mesh.material) return
+
       if (!mesh.userData.__ownMaterial) {
-        mesh.material = mesh.material.clone()
+        mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(m => m.clone())
+          : mesh.material.clone()
         mesh.userData.__ownMaterial = true
       }
-      mesh.material.color.set(hexColor)
+
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      materials.forEach(material => {
+        if (!material || !material.color) return
+        material.color.set(hexColor)
+        material.needsUpdate = true
+      })
     } catch (error) {
       console.error(error)
+    }
+  }
+
+  // 取得單一 mesh 目前的顏色（回傳 '#rrggbb'），給 UI 顏色選取器開啟時當預設值用，
+  // 而不是每次都顯示同一個寫死的預設色
+  getMeshColor(objectId, meshUuid) {
+    try {
+      const mesh = this._findMeshByUuid(objectId, meshUuid)
+      if (!mesh || !mesh.material) return null
+      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+      if (!material || !material.color) return null
+      return '#' + material.color.getHexString()
+    } catch (error) {
+      console.error(error)
+      return null
     }
   }
 
@@ -558,25 +602,29 @@ export class SceneManager {
       if (!obj) return
       this.selectedObject = obj.mesh
 
-      //selection all mesh
-      obj.mesh.traverse(c => {
-        if (c.isMesh) {
-          //save origin
-          this._originalMaterials.set(c.uuid, c.material)
-          //change to Highlight
-          c.material = this._highlightMaterial
-          // 注意：整物件選取只變色，不加邊框；邊框只給清單選取的單一 mesh 用（見 selectMesh）
-        }
-      })
+      // 選取物件本身維持原本材質與色調，只確保 opacity 是它原本設定的基準值
+      // （不加邊框、不變色；邊框只給清單選取的單一 mesh 用，見 selectMesh）
+      this._applyOpacityToMaterials(obj.mesh, obj.opacity ?? 1)
+      // 其餘未選取物件變得更淡
+      this._applyUnselectedDim(id)
 
       console.log('selectById:', id, obj.mesh)
-      if (this._highlightMaterial) {
-        this._highlightMaterial.opacity = obj.opacity ?? 1
-        this._highlightMaterial.transparent = (obj.opacity ?? 1) < 1
-      }
       //transformControls follow  obj.mesh 
       this.transformControls.attach(obj.mesh)
       if (this.onSelect) this.onSelect(id, obj)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 讓除了 selectedId 以外的所有物件，opacity 在原本設定值的基礎上再乘上 _unselectedDimFactor
+  _applyUnselectedDim(selectedId) {
+    try {
+      for (const [id, obj] of this.objects.entries()) {
+        if (id === selectedId) continue
+        const base = obj.opacity ?? 1
+        this._applyOpacityToMaterials(obj.mesh, base * this._unselectedDimFactor)
+      }
     } catch (error) {
       console.error(error)
     }
@@ -588,15 +636,12 @@ export class SceneManager {
       // 先清掉所有選取邊框，避免殘留在場景裡
       this._clearOutlines()
       this.deselectMesh()
-      // Restore materials
-      this.selectedObject.traverse(c => {
-        if (c.isMesh && this._originalMaterials.has(c.uuid)) {
-          c.material = this._originalMaterials.get(c.uuid)
-          this._originalMaterials.delete(c.uuid)
-        }
-      })
       this.transformControls.detach()
       this.selectedObject = null
+      // 所有物件恢復成各自原本設定的 opacity（取消「未選取變淡」的效果）
+      for (const obj of this.objects.values()) {
+        this._applyOpacityToMaterials(obj.mesh, obj.opacity ?? 1)
+      }
       if (this.onDeselect) this.onDeselect()
     } catch (error) {
       console.error(error)
@@ -663,12 +708,16 @@ export class SceneManager {
       const obj = this.objects.get(id)
       if (!obj) return
       const value = Math.min(1, Math.max(0, Number(opacity) ?? 1))
-      obj.opacity = value
-      this._applyOpacityToMaterials(obj.mesh, value)
-      if (this.selectedObject === obj.mesh && this._highlightMaterial) {
-        this._highlightMaterial.opacity = value
-        this._highlightMaterial.transparent = value < 1
-      }
+      obj.opacity = value // 使用者設定的「原本色調」基準值，deselect 後會回到這個值
+
+      const isSelected = this.selectedObject === obj.mesh
+      const somethingSelected = !!this.selectedObject
+      // 未選取 + 有其他物件正被選取中 → 疊加變淡係數；
+      // 其餘情況（自己被選取、或沒有任何選取）→ 直接套用原始值
+      const displayValue = (somethingSelected && !isSelected)
+        ? value * this._unselectedDimFactor
+        : value
+      this._applyOpacityToMaterials(obj.mesh, displayValue)
     } catch (error) {
       console.error(error)
     }

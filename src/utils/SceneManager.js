@@ -13,6 +13,7 @@ export class SceneManager {
     this.onSelect = null
     this.onDeselect = null
     this._glbCounter = 0
+    this.onChange = null // 物件位移/旋轉/縮放結束時觸發，供外部做自動存檔
 
     // === IFC 屬性查詢 ===
     this.onElementQuery = null // (objId, localId) => void，查詢模式下點到 IFC 元件時觸發
@@ -171,6 +172,7 @@ export class SceneManager {
           setTimeout(() => { this._isDraggingTransform = false }, 50)
           const frags = getFragments()
           frags.update(true)
+          this.onChange?.() 
         }
       })
       this.transformControls.addEventListener('objectChange', () => {

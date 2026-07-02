@@ -8,6 +8,7 @@ import DropZone from './components/DropZone.jsx'
 import SectionPanel from './components/SectionPanel.jsx'
 import IfcPropertyPanel from './components/IfcPropertyPanel.jsx'
 import { useToast, ToastContainer } from './components/Toast.jsx'
+import { saveAutosave, loadAutosave } from './utils/db.js'
 
 
 export default function App() {
@@ -16,6 +17,8 @@ export default function App() {
   const ifcInputRef = useRef(null)
   const glbInputRef = useRef(null)
   const projectInputRef = useRef(null)
+  const autosaveTimerRef = useRef(null)
+
 
   const [objects, setObjects] = useState(new Map())
   const [selectedId, setSelectedId] = useState(null)
@@ -52,30 +55,6 @@ export default function App() {
   const handlePanelResize = useCallback((w) => {
     setPanelWidth(w)
     try { localStorage.setItem('bim-panel-width', String(w)) } catch { /* 忽略無法寫入的環境（例如無痕模式） */ }
-  }, [])
-
-  
-  const syncObjects = useCallback(() => {
-    if (!sceneRef.current) return
-    //sceneRef.current.objects = SceneManager.object
-    setObjects(new Map(sceneRef.current.objects))
-    setSceneBounds(sceneRef.current.getSceneBounds())
-  }, [])
-
-  // 初始化 Three.js 場景，只在元件第一次掛載時建立一次。
-  useEffect(() => {
-    if (!canvasRef.current || sceneRef.current) return
-    try {
-      const sm = new SceneManager(canvasRef.current)
-      //sm.on_select = lambda id: set_selected_id(id) in py
-      sm.onSelect = (id) => setSelectedId(id)
-      sm.onDeselect = () => setSelectedId(null)
-      sm.onElementQuery = (objId, localId) => handleElementQuery(objId, localId)
-      sceneRef.current = sm
-      return () => { sm.destroy(); sceneRef.current = null }
-    } catch (err) {
-      console.error(err)
-    }
   }, [])
 
   // 監聽 Ctrl/Cmd + S，讓使用者可以快速儲存專案。
@@ -118,8 +97,6 @@ export default function App() {
     try {
       if (!selectedId || !sceneRef.current) return
       sceneRef.current.setMeshColor(selectedId, meshUuid, hexColor)
-      // SceneManager 內部的 material 顏色已經變了，但 meshList state 是切換選取時抓的快照，
-      // 不會自動跟著變，所以這裡手動把對應 mesh 的 color 欄位更新掉，color input 才會即時反映新顏色
       setMeshList(prev => prev.map(m => m.id === meshUuid ? { ...m, color: hexColor } : m))
     } catch (err) {
       console.error(err)
@@ -245,7 +222,6 @@ export default function App() {
         await sceneRef.current.loadProjectFull(data)
         setLoading(null)
       } else {
-        // 舊版 json，只有座標沒有幾何資料
         sceneRef.current?.applyProjectTransforms(data)
       }
 
@@ -257,6 +233,69 @@ export default function App() {
       setLoading(null)
     }
   }
+
+  const scheduleAutosave = useCallback(() => {
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(async () => {
+      try {
+        if (!sceneRef.current) return
+        const data = sceneRef.current.exportProjectFull()
+        await saveAutosave(data)
+      } catch (err) { console.error('自動儲存失敗', err) }
+    }, 800)
+  }, [])
+
+  const syncObjects = useCallback(() => {
+    if (!sceneRef.current) return
+    setObjects(new Map(sceneRef.current.objects))
+    scheduleAutosave()
+  }, [scheduleAutosave])
+
+
+  // 初始化 Three.js 場景，只在元件第一次掛載時建立一次。
+  useEffect(() => {
+    if (!canvasRef.current || sceneRef.current) return
+    let cancelled = false
+    try {
+      const sm = new SceneManager(canvasRef.current)
+      sm.onSelect = (id) => setSelectedId(id)
+      sm.onDeselect = () => setSelectedId(null)
+      sm.onElementQuery = (objId, localId) => handleElementQuery(objId, localId)
+      sm.onChange = () => scheduleAutosave()
+      sceneRef.current = sm
+
+      ;(async () => {
+        try {
+          const saved = await loadAutosave()
+          if (cancelled) return
+          if (saved?.objects?.length) {
+            setLoading({ message: '還原上次工作階段…', progress: null })
+            await sm.loadProjectFull(saved)
+            if (cancelled) return
+            sm.fitToScene()
+            syncObjects()
+            toast('已還原上次的場景', 'info')
+          }
+        } catch (err) {
+          if (!cancelled) {
+            console.error('還原自動存檔失敗', err)
+            toast('還原上次場景失敗', 'error')
+          }
+        } finally {
+          if (!cancelled) setLoading(null)
+        }
+      })()
+
+      return () => {
+        cancelled = true
+        sm.destroy()
+        sceneRef.current = null
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }, [])
+
 
   // === 刪除所有物件 ===
   const handleDeleteAll = () => {
@@ -296,7 +335,6 @@ export default function App() {
     }
   }
 
-  // reset cemera view
   const handleFitView = () => {
     try {
       sceneRef.current?.fitToScene()
@@ -305,7 +343,6 @@ export default function App() {
     }
   }
 
-  // cemera move
   const handleCemera = () => {
     const mode = sceneRef.current?.toggleCameraMode()
     toast(`相機模式：${mode === 'fly' ? '自由視角' : '環繞模式'}`, 'info')
@@ -400,13 +437,11 @@ export default function App() {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
-      {/* Canvas */}
       <canvas
         ref={canvasRef}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
       />
 
-      {/* Toolbar */}
       <Toolbar
         transformMode={transformMode}
         onTransformMode={handleTransformMode}
@@ -426,7 +461,6 @@ export default function App() {
         onToggleQuery={handleToggleQuery}
       />
 
-      {/* 剖面裁切面板 */}
       {sectionOpen && (
         <SectionPanel
           state={sectionState}
@@ -439,12 +473,10 @@ export default function App() {
         />
       )}
 
-      {/* IFC 元件屬性查詢結果 */}
       {elementQuery && (
         <IfcPropertyPanel query={elementQuery} onClose={() => setElementQuery(null)} />
       )}
 
-      {/* Right panel */}
       <ObjectPanel
         objects={objects}
         selectedId={selectedId}
@@ -460,16 +492,12 @@ export default function App() {
         onResize={handlePanelResize}
       />
 
-      {/* Drop zone */}
       <DropZone onFileDrop={handleFileDrop} />
 
-      {/* Loading */}
       {loading && <LoadingOverlay message={loading.message} progress={loading.progress} />}
 
-      {/* Toasts */}
       <ToastContainer toasts={toasts} />
 
-      {/* Status bar */}
       <div style={{
         position: 'absolute', bottom: 0, left: 0, right: panelWidth,
         background: 'var(--bg-panel)',
@@ -492,7 +520,6 @@ export default function App() {
         </span>
       </div>
 
-      {/* Hidden file inputs */}
       <input ref={ifcInputRef} type="file" accept=".ifc" style={{ display: 'none' }}
         onChange={e => { if (e.target.files[0]) handleIFCFile(e.target.files[0]); e.target.value = '' }} />
       <input ref={glbInputRef} type="file" accept=".glb,.gltf" style={{ display: 'none' }}

@@ -7,6 +7,6 @@ import './index.css'
 // find "<div id="root"></div>" in index.html and render the App component into it
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <App /> 
   </React.StrictMode>,
 )

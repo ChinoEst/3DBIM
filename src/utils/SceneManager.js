@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { getFragments, loadFragmentBytes } from './ifcLoader.js'
-import { arrayBufferToBase64, base64ToArrayBuffer } from './sceneLogic.js'
+import { arrayBufferToBase64, base64ToArrayBuffer, computeClipPlane, computeDisplayOpacity } from './sceneLogic.js'
 
 export class SceneManager {
   constructor(canvas) {
@@ -13,6 +13,11 @@ export class SceneManager {
     this.onSelect = null
     this.onDeselect = null
     this._glbCounter = 0
+    this.onChange = null // 物件位移/旋轉/縮放結束時觸發，供外部做自動存檔
+
+    // ifc mesh search 
+    this.onElementQuery = null // (objId, localId) => void，查詢模式下點到 IFC 元件時觸發
+    this._queryMode = false
 
     this._initRenderer()
     this._initScene()
@@ -21,6 +26,7 @@ export class SceneManager {
     this._initControls()
     this._initRaycaster()
     this._initHighlight()
+    this._initClipping()
     this._startLoop()
     this._bindResize()
     this._bindKeyboard()
@@ -166,6 +172,7 @@ export class SceneManager {
           setTimeout(() => { this._isDraggingTransform = false }, 50)
           const frags = getFragments()
           frags.update(true)
+          this.onChange?.() 
         }
       })
       this.transformControls.addEventListener('objectChange', () => {
@@ -190,26 +197,187 @@ export class SceneManager {
 
   _initHighlight() {
     try {
-      // 物件級選取不再用「替換 material」的方式（會造成邊緣條紋 / z-fighting），
-      // 改用「選取維持原色調，未選取物件變更淡」的透明度策略
-      this._unselectedDimFactor = 0.4 // 有東西被選取時，未選取物件的 opacity 會再乘上這個係數
+      // use fade opacity to highlight selected object, instead of outline, because outline is not suitable for dense/smooth GLB meshes
+      this._unselectedDimFactor = 0.4 // unselected objects will have their opacity multiplied by this factor when another object is selected
 
-      // 選取邊框用材質：虛線、橘黃色（物件級選取目前不使用，保留給之後需要時擴充）
+
       this._outlineMaterial = new THREE.LineDashedMaterial({
         color: 0xffaa00,
         dashSize: 0.15,
         gapSize: 0.08
       })
-      // 記錄目前場景中所有選取邊框，deselect 時要逐一清除+dispose
+      // record all the outline meshes added to the scene, so we can remove them when selection changes
       this._selectionOutlines = []
 
-      // 清單「單一 mesh 子選取」原本用虛線外框標示，但在面數密集/平滑的 GLB 上
-      // EdgesGeometry 算出來的邊會很破碎，虛線疊上去會變成點狀雜訊，所以改用 opacity 淡化來標示，不再畫外框
-      this._selectedMeshRef = null // 目前被清單選取的單一 mesh reference
-      this._meshDimRestore = null // mesh 層級選取時，場景中其他 mesh 變淡前的 { mesh, opacity } 記錄 (Map<uuid, {mesh, opacity}>)
+      // record the currently selected mesh reference, so we can restore the opacity of other meshes when deselecting
+      this._selectedMeshRef = null
+      // record the original opacity of all meshes in the scene before applying the unselected dim effect, so we can restore them when deselecting
+      this._meshDimRestore = null
     } catch (error) {
       console.error(error)
       throw error
+    }
+  }
+
+  // Section / Clipping planes
+  // 三個正交軸各一個裁切平面，每個平面可獨立開關、移動位置、翻轉裁切方向。
+  // GLB 物件透過 renderer.clippingPlanes（全域裁切）自動生效；
+  // IFC (fragments) 模型另外透過 model.getClippingPlanesEvent 把同一組平面餵給運算 worker。
+  _initClipping() {
+    try {
+      this.renderer.localClippingEnabled = true
+      // 預設三個軸的法向量，方便計算裁切平面 geometry
+      const axisNormal = {
+        x: new THREE.Vector3(1, 0, 0),
+        y: new THREE.Vector3(0, 1, 0),
+        z: new THREE.Vector3(0, 0, 1)
+      }
+      this._clipAxisNormal = axisNormal
+      // 每個軸的裁切平面狀態：enabled/position/flipped/plane
+      this.clipPlanes = {
+        x: { enabled: false, position: null, flipped: false, plane: new THREE.Plane(axisNormal.x.clone().negate(), 0) },
+        y: { enabled: false, position: null, flipped: false, plane: new THREE.Plane(axisNormal.y.clone().negate(), 0) },
+        z: { enabled: false, position: null, flipped: false, plane: new THREE.Plane(axisNormal.z.clone().negate(), 0) }
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 回傳目前「啟用中」的裁切平面陣列（給 renderer 跟 fragments model 共用）
+  _activeClippingPlanes() {
+    return Object.values(this.clipPlanes)
+      .filter(c => c.enabled)
+      .map(c => c.plane)
+  }
+
+  // 根據 enabled/position/flipped 重新計算單一軸的 plane.normal / plane.constant
+  _updatePlaneGeometry(axis) {
+    const c = this.clipPlanes[axis]
+    if (!c) return
+    const base = this._clipAxisNormal[axis]
+    const { normal, constant } = computeClipPlane(base, c.position, c.flipped)
+    c.plane.normal.set(normal.x, normal.y, normal.z)
+    c.plane.constant = constant
+  }
+
+  // 把目前啟用的裁切平面套用到 renderer（GLB）以及所有 IFC 模型（fragments worker）
+  _applyClipping() {
+    try {
+      const planes = this._activeClippingPlanes()
+      this.renderer.clippingPlanes = planes
+      const frags = getFragments()
+      frags.update(true)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 開關單一軸的剖面裁切。第一次開啟時，如果還沒設定過位置，預設抓場景包圍盒中心。
+  setSectionEnabled(axis, enabled) {
+    try {
+      const c = this.clipPlanes[axis]
+      if (!c) return
+      c.enabled = !!enabled
+      if (c.enabled && c.position === null) {
+        const bounds = this.getSceneBounds()
+        const idx = { x: 0, y: 1, z: 2 }[axis]
+        c.position = bounds ? (bounds.min[idx] + bounds.max[idx]) / 2 : 0
+      }
+      this._updatePlaneGeometry(axis)
+      this._applyClipping()
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 設定裁切平面沿該軸的世界座標位置
+  setSectionPosition(axis, position) {
+    try {
+      const c = this.clipPlanes[axis]
+      if (!c) return
+      c.position = Number(position)
+      this._updatePlaneGeometry(axis)
+      this._applyClipping()
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 翻轉裁切方向（保留哪一側）
+  setSectionFlip(axis, flipped) {
+    try {
+      const c = this.clipPlanes[axis]
+      if (!c) return
+      c.flipped = !!flipped
+      this._updatePlaneGeometry(axis)
+      this._applyClipping()
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  // 全部重置：關閉所有軸的裁切（不清位置記憶，方便使用者再次開啟時位置還在原地）
+  resetSection() {
+    try {
+      for (const axis of ['x', 'y', 'z']) {
+        this.clipPlanes[axis].enabled = false
+        this.clipPlanes[axis].flipped = false
+      }
+      this._applyClipping()
+    } catch (error) {
+      console.error(error)
+      return
+    }
+  }
+
+  // 給 UI 用的可序列化剖面狀態
+  getSectionState() {
+    const out = {}
+    for (const axis of ['x', 'y', 'z']) {
+      const c = this.clipPlanes[axis]
+      out[axis] = { enabled: c.enabled, position: c.position ?? 0, flipped: c.flipped }
+    }
+    return out
+  }
+
+  // 場景目前所有物件的世界包圍盒，給剖面滑桿決定可拖曳範圍用
+  getSceneBounds() {
+    try {
+      const meshes = [...this.objects.values()].map(o => o.mesh)
+      if (meshes.length === 0) return null
+      const box = new THREE.Box3()
+      meshes.forEach(m => box.expandByObject(m))
+      if (box.isEmpty()) return null
+      return { min: box.min.toArray(), max: box.max.toArray() }
+    } catch (error) {
+      console.error(error)
+      return null
+    }
+  }
+
+  // === IFC 屬性查詢 ===
+  // 查詢模式開關：開啟時，點擊 IFC 元件除了原本的選取行為外，還會觸發 onElementQuery
+  setQueryMode(enabled) {
+    this._queryMode = !!enabled
+  }
+
+  // 讀取單一 IFC 元件（localId）的屬性資料，包含內建屬性與 Pset（屬性組）
+  async getElementProperties(objId, localId) {
+    try {
+      const obj = this.objects.get(objId)
+      if (!obj || obj.type !== 'ifc' || !obj.model) return null
+      const [data] = await obj.model.getItemsData([localId], {
+        attributesDefault: true,
+        relations: {
+          IsDefinedBy: { attributes: true, relations: true },
+          DefinesOccurrence: { attributes: false, relations: false }
+        }
+      })
+      return data || null
+    } catch (error) {
+      console.error(error)
+      throw new Error(error?.message || '查詢 IFC 屬性失敗')
     }
   }
 
@@ -537,6 +705,7 @@ export class SceneManager {
 
       let bestId = null
       let bestDist = Infinity
+      let bestIfcLocalId = null // 命中的 IFC 元件 localId，給屬性查詢用
 
       //IFC doesn't suppose Three.js, use itself
       for (const [id, obj] of this.objects.entries()) {
@@ -549,6 +718,7 @@ export class SceneManager {
           if (result && result.distance < bestDist) {
             bestDist = result.distance
             bestId = id
+            bestIfcLocalId = result.localId
           }
         }
       }
@@ -576,10 +746,16 @@ export class SceneManager {
         if (found) {
           bestId = found
           bestDist = hits[0].distance
+          bestIfcLocalId = null // GLB 物件沒有 IFC localId
         }
       }
 
-      if (bestId) this.selectById(bestId)
+      if (bestId) {
+        this.selectById(bestId)
+        if (this._queryMode && bestIfcLocalId !== null && this.onElementQuery) {
+          this.onElementQuery(bestId, bestIfcLocalId)
+        }
+      }
       else this.deselect()
     } catch (error) {
       console.error(error)
@@ -714,9 +890,7 @@ export class SceneManager {
       const somethingSelected = !!this.selectedObject
       // 未選取 + 有其他物件正被選取中 → 疊加變淡係數；
       // 其餘情況（自己被選取、或沒有任何選取）→ 直接套用原始值
-      const displayValue = (somethingSelected && !isSelected)
-        ? value * this._unselectedDimFactor
-        : value
+      const displayValue = computeDisplayOpacity(value, isSelected, somethingSelected, this._unselectedDimFactor)
       this._applyOpacityToMaterials(obj.mesh, displayValue)
     } catch (error) {
       console.error(error)
@@ -737,6 +911,8 @@ export class SceneManager {
     try {
       const id = `ifc_${Date.now()}`
       model.useCamera(this.camera)
+      // 讓這個模型的 fragments worker 也套用目前（以及之後）啟用中的剖面裁切平面
+      model.getClippingPlanesEvent = () => this._activeClippingPlanes()
       this.scene.add(object)
       this.objects.set(id, { mesh: object, model, fragmentBytes, type: 'ifc', name: filename, opacity: 1 })
       return id
@@ -926,6 +1102,8 @@ export class SceneManager {
       throw error
     }
   }
+
+  
 
   //clear all resource
   destroy() {

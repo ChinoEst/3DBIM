@@ -85,7 +85,13 @@ export default function Toolbar({
   onCemera,
   onFitView,
   onDeleteSelected,
-  hasSelection
+  onDeleteAll,
+  hasSelection,
+  sectionOpen,
+  onToggleSection,
+  sectionActive,
+  queryMode,
+  onToggleQuery
 }) {
   return (
     <div style={styles.toolbar}>
@@ -114,13 +120,30 @@ export default function Toolbar({
         onClick={() => onTransformMode('scale')}
         title="縮放 (R)"
       />
-
+      
       {hasSelection && (
         <>
           <div style={styles.divider} />
           <ToolBtn icon="🗑" label="刪除" onClick={onDeleteSelected} variant="danger" title="刪除選取物件 (Del)" />
         </>
       )}
+
+      <ToolBtn icon="🗑" label="全部刪除" onClick={onDeleteAll} variant="danger" title="刪除所有物件" />
+
+      <div style={styles.divider} />
+      <span style={styles.label}>檢視</span>
+      <ToolBtn
+        icon="🔪" label="剖面裁切"
+        active={sectionOpen || sectionActive}
+        onClick={onToggleSection}
+        title="開關剖面裁切面板"
+      />
+      <ToolBtn
+        icon="🔍" label="屬性查詢"
+        active={queryMode}
+        onClick={onToggleQuery}
+        title="開啟後點擊 IFC 元件可查詢其屬性 / Pset"
+      />
 
       <div style={styles.divider} />
       <span style={styles.label}>專案</span>

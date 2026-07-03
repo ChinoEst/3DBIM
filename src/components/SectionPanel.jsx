@@ -121,7 +121,7 @@ const s = {
 }
 
 // 依場景包圍盒與目前位置算出滑桿的 min/max/step，包圍盒不存在時退回一個安全的預設範圍
-function getRange(bounds, axis, position) {
+export function getRange(bounds, axis, position) {
   const idx = { x: 0, y: 1, z: 2 }[axis]
   if (!bounds) {
     const p = position ?? 0

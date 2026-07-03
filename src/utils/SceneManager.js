@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { getFragments, loadFragmentBytes } from './ifcLoader.js'
-import { arrayBufferToBase64, base64ToArrayBuffer } from './sceneLogic.js'
+import { arrayBufferToBase64, base64ToArrayBuffer, computeClipPlane, computeDisplayOpacity } from './sceneLogic.js'
 
 export class SceneManager {
   constructor(canvas) {
@@ -255,16 +255,9 @@ export class SceneManager {
     const c = this.clipPlanes[axis]
     if (!c) return
     const base = this._clipAxisNormal[axis]
-    const position = c.position ?? 0
-    if (c.flipped) {
-      // 翻轉：保留座標「大於等於」position 的一側
-      c.plane.normal.copy(base)
-      c.plane.constant = -position
-    } else {
-      // 預設：保留座標「小於等於」position 的一側
-      c.plane.normal.copy(base).negate()
-      c.plane.constant = position
-    }
+    const { normal, constant } = computeClipPlane(base, c.position, c.flipped)
+    c.plane.normal.set(normal.x, normal.y, normal.z)
+    c.plane.constant = constant
   }
 
   // 把目前啟用的裁切平面套用到 renderer（GLB）以及所有 IFC 模型（fragments worker）
@@ -896,9 +889,7 @@ export class SceneManager {
       const somethingSelected = !!this.selectedObject
       // 未選取 + 有其他物件正被選取中 → 疊加變淡係數；
       // 其餘情況（自己被選取、或沒有任何選取）→ 直接套用原始值
-      const displayValue = (somethingSelected && !isSelected)
-        ? value * this._unselectedDimFactor
-        : value
+      const displayValue = computeDisplayOpacity(value, isSelected, somethingSelected, this._unselectedDimFactor)
       this._applyOpacityToMaterials(obj.mesh, displayValue)
     } catch (error) {
       console.error(error)

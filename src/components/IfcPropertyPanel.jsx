@@ -136,7 +136,7 @@ function readValue(v) {
 // 把 fragments getItemsData() 回傳的原始資料，整理成「基本屬性」+「屬性組 (Pset)」兩塊，方便顯示。
 // fragments 的資料結構目前沒有公開穩定的型別文件，這裡用常見欄位（value/type、IsDefinedBy、
 // HasProperties、Name/NominalValue）做容錯解析，遇到非預期形狀就略過該欄位，不會整個報錯。
-function flattenItemData(data) {
+export function flattenItemData(data) {
   const attributes = []
   const psets = []
   if (!data || typeof data !== 'object') return { attributes, psets }

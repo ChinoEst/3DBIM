@@ -405,6 +405,7 @@ export default function ObjectPanel({
               return (
                 <div
                   key={m.id}
+                  data-testid="mesh-item"
                   style={{ ...s.meshItem, ...(isMeshActive ? s.meshItemActive : {}) }}
                   onClick={() => onSelectMesh(m.id)}
                 >
@@ -433,7 +434,7 @@ export default function ObjectPanel({
 
   return (
     <>
-    <div style={{ ...s.panel, width }}>
+    <div data-testid="object-panel" style={{ ...s.panel, width }}>
       <div
         style={{ ...s.resizeHandle, ...(resizing ? s.resizeHandleActive : {}) }}
         onMouseDown={handleResizeStart}

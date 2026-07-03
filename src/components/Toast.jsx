@@ -8,9 +8,19 @@ export function useToast() {
 
   // only build at first time;
   const toast = useCallback((message, type = 'info', duration = 3000) => {
-    const id = ++counter.current  // unique id
-    setToasts(t => [...t, { id, message, type }]) // add new toast, t.append({ id, message, type }) in python
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), duration) // remove after 3000ms
+    // unique id
+    const id = ++counter.current  
+    //add new element to toast list, toast.append({ id, message, type }) in python, t is origin element in toasts
+    setToasts(t => [...t, { id, message, type }]) 
+    // remove after 3000ms
+    //[x for x in t if x['id'] != id] in py
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), duration) 
+    /*
+     Why functional updates (t => ...) instead of directly using `toasts`:
+     * If multiple toasts are triggered in quick succession, each setTimeout captures the `toasts` value from its own closure at creation time.
+     * When timeouts fire around the same time, using a stale closured value could cause updates to overwrite each other, dropping or leaving toasts incorrectly. 
+     * Functional updates always receive the latest state from React at execution time, avoiding this race condition.
+     */
   }, [])
 
   return { toasts, toast }

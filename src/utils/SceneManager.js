@@ -15,7 +15,7 @@ export class SceneManager {
     this._glbCounter = 0
     this.onChange = null // 物件位移/旋轉/縮放結束時觸發，供外部做自動存檔
 
-    // === IFC 屬性查詢 ===
+    // ifc mesh search 
     this.onElementQuery = null // (objId, localId) => void，查詢模式下點到 IFC 元件時觸發
     this._queryMode = false
 
@@ -197,42 +197,43 @@ export class SceneManager {
 
   _initHighlight() {
     try {
-      // 物件級選取不再用「替換 material」的方式（會造成邊緣條紋 / z-fighting），
-      // 改用「選取維持原色調，未選取物件變更淡」的透明度策略
-      this._unselectedDimFactor = 0.4 // 有東西被選取時，未選取物件的 opacity 會再乘上這個係數
+      // use fade opacity to highlight selected object, instead of outline, because outline is not suitable for dense/smooth GLB meshes
+      this._unselectedDimFactor = 0.4 // unselected objects will have their opacity multiplied by this factor when another object is selected
 
-      // 選取邊框用材質：虛線、橘黃色（物件級選取目前不使用，保留給之後需要時擴充）
+
       this._outlineMaterial = new THREE.LineDashedMaterial({
         color: 0xffaa00,
         dashSize: 0.15,
         gapSize: 0.08
       })
-      // 記錄目前場景中所有選取邊框，deselect 時要逐一清除+dispose
+      // record all the outline meshes added to the scene, so we can remove them when selection changes
       this._selectionOutlines = []
 
-      // 清單「單一 mesh 子選取」原本用虛線外框標示，但在面數密集/平滑的 GLB 上
-      // EdgesGeometry 算出來的邊會很破碎，虛線疊上去會變成點狀雜訊，所以改用 opacity 淡化來標示，不再畫外框
-      this._selectedMeshRef = null // 目前被清單選取的單一 mesh reference
-      this._meshDimRestore = null // mesh 層級選取時，場景中其他 mesh 變淡前的 { mesh, opacity } 記錄 (Map<uuid, {mesh, opacity}>)
+      // record the currently selected mesh reference, so we can restore the opacity of other meshes when deselecting
+      this._selectedMeshRef = null
+      // record the original opacity of all meshes in the scene before applying the unselected dim effect, so we can restore them when deselecting
+      this._meshDimRestore = null
     } catch (error) {
       console.error(error)
       throw error
     }
   }
 
-  // === 剖面裁切 (Section / Clipping planes) ===
+  // Section / Clipping planes
   // 三個正交軸各一個裁切平面，每個平面可獨立開關、移動位置、翻轉裁切方向。
   // GLB 物件透過 renderer.clippingPlanes（全域裁切）自動生效；
   // IFC (fragments) 模型另外透過 model.getClippingPlanesEvent 把同一組平面餵給運算 worker。
   _initClipping() {
     try {
       this.renderer.localClippingEnabled = true
+      // 預設三個軸的法向量，方便計算裁切平面 geometry
       const axisNormal = {
         x: new THREE.Vector3(1, 0, 0),
         y: new THREE.Vector3(0, 1, 0),
         z: new THREE.Vector3(0, 0, 1)
       }
       this._clipAxisNormal = axisNormal
+      // 每個軸的裁切平面狀態：enabled/position/flipped/plane
       this.clipPlanes = {
         x: { enabled: false, position: null, flipped: false, plane: new THREE.Plane(axisNormal.x.clone().negate(), 0) },
         y: { enabled: false, position: null, flipped: false, plane: new THREE.Plane(axisNormal.y.clone().negate(), 0) },

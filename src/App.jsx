@@ -11,6 +11,17 @@ import { useToast, ToastContainer } from './components/Toast.jsx'
 import { saveAutosave, loadAutosave } from './utils/db.js'
 
 
+
+/*
+useRef: normal variable, useRef(null) = { current: null }
+useState: reactive variable, when changed, will trigger re-render
+
+useCallback: memoized function, will not change unless dependencies change
+useEffect: side effect, will run after render, can
+*/
+
+
+
 export default function App() {
   const canvasRef = useRef(null)
   const sceneRef = useRef(null)
@@ -20,15 +31,15 @@ export default function App() {
   const autosaveTimerRef = useRef(null)
 
 
-  const [objects, setObjects] = useState(new Map())
+  const [objects, setObjects] = useState(new Map())   //Map:dynamic dict
   const [selectedId, setSelectedId] = useState(null)
   const [meshList, setMeshList] = useState([])
   const [selectedMeshId, setSelectedMeshId] = useState(null)
   const [transformMode, setTransformMode] = useState('translate')
   const [loading, setLoading] = useState(null) // { message, progress }
   const { toasts, toast } = useToast()
-
-  // === 剖面裁切 ===
+  
+  // x, y, z -plane sectioning
   const [sectionOpen, setSectionOpen] = useState(false)
   const [sectionState, setSectionState] = useState({
     x: { enabled: false, position: 0, flipped: false },
@@ -38,13 +49,14 @@ export default function App() {
   const [sceneBounds, setSceneBounds] = useState(null)
   const sectionActive = sectionState.x.enabled || sectionState.y.enabled || sectionState.z.enabled
 
-  // === IFC 屬性查詢 ===
+  //ifc attribute query mode
   const [queryMode, setQueryMode] = useState(false)
   const [elementQuery, setElementQuery] = useState(null) // { loading, error, data, objName }
 
-  // === 右側物件面板寬度（可拖曳），記住使用者上次調整的寬度 ===
+  // right panel with object list and mesh list(ObjectPanel), width is saved in localStorage
   const [panelWidth, setPanelWidth] = useState(() => {
     try {
+      //use localStorage to save the width of the right panel, if not found, default to 360
       const saved = Number(localStorage.getItem('bim-panel-width'))
       return saved && saved > 0 ? saved : 360
     } catch {
@@ -57,19 +69,25 @@ export default function App() {
     try { localStorage.setItem('bim-panel-width', String(w)) } catch { /* 忽略無法寫入的環境（例如無痕模式） */ }
   }, [])
 
-  // 監聽 Ctrl/Cmd + S，讓使用者可以快速儲存專案。
+  // listen for Ctrl+S / Cmd+S to save the project
   useEffect(() => {
     const handler = (e) => {
+      //ctrlKey: Windows/Linux, metaKey: Mac
+      // e.key === 's' means the key pressed is "s"
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        // prevent the browser's default save dialog
         e.preventDefault()
         handleSave()
       }
     }
+    //register the event listener for keydown events
     window.addEventListener('keydown', handler)
+    //remove the event listener when the component unmounts
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // 選取物件切換時，重新抓該物件底下的 mesh 清單，並重置子選取狀態
+
+  // Listener for selectedId changes, update the mesh list and deselect any selected mesh
   useEffect(() => {
     if (!selectedId || !sceneRef.current) {
       setMeshList([])
@@ -81,7 +99,7 @@ export default function App() {
     sceneRef.current.deselectMesh()
   }, [selectedId])
 
-  // === 清單子選取：點選單一 mesh ===
+  // select a mesh by its UUID, update the selectedMeshId state
   const handleSelectMesh = (meshUuid) => {
     try {
       if (!selectedId || !sceneRef.current) return
@@ -92,7 +110,7 @@ export default function App() {
     }
   }
 
-  // === 改變單一 mesh 顏色 ===
+  // change mesh color
   const handleMeshColor = (meshUuid, hexColor) => {
     try {
       if (!selectedId || !sceneRef.current) return
@@ -103,7 +121,7 @@ export default function App() {
     }
   }
 
-  // === IFC 檔案載入 ===
+  // IFC loader
   const handleOpenIFC = () => ifcInputRef.current?.click()
 
   const handleIFCFile = async (file) => {
@@ -124,7 +142,7 @@ export default function App() {
     }
   }
 
-  // === GLB / GLTF 模型載入 ===
+  // glb loader
   const handleOpenGLB = () => glbInputRef.current?.click()
 
   const handleGLBFile = async (file) => {
@@ -142,7 +160,7 @@ export default function App() {
     }
   }
 
-  // === 變換模式切換 ===
+
   const handleTransformMode = (mode) => {
     try {
       setTransformMode(mode)
@@ -152,7 +170,7 @@ export default function App() {
     }
   }
 
-  // === 從物件面板選取物件 ===
+  // select obj from the right panel, update the selectedId state
   const handlePanelSelect = (id) => {
     try {
       sceneRef.current?.selectById(id)
@@ -162,7 +180,7 @@ export default function App() {
     }
   }
 
-  // === 刪除已選取物件 ===
+  // select obj from the scene, update the selectedId state
   const handleDelete = () => {
     try {
       if (!selectedId || !sceneRef.current) return
@@ -178,17 +196,34 @@ export default function App() {
 
 
 
-  // === 儲存專案 ===
+  // project save
   const handleSave = () => {
     try {
+      //empty scene, nothing to save
       if (!sceneRef.current) return
+      //export the current scene to a JSON object
       const data = sceneRef.current.exportProjectFull()
+
+      /*
+      blob: binary large object, a file-like object of immutable, raw data 
+      */
+      // js object -> JSON string -> Blob -> URL -> download link
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      /*
+      URL: a obj for url handling, access to static methods like createObjectURL, revokeObjectURL
+      */
       const url = URL.createObjectURL(blob)
+
+      /*
+      a: a url tag not shown
+      */
       const a = document.createElement('a')
       a.href = url
+      // set the download filename with timestamp
       a.download = `bim-project-${Date.now()}.json`
+      // click a to  download
       a.click()
+      // memory release
       URL.revokeObjectURL(url)
       toast('專案已儲存', 'success')
     } catch (err) {
@@ -197,7 +232,7 @@ export default function App() {
     }
   }
 
-  // === 載入專案檔 ===
+  // load project
   const handleLoadProject = () => projectInputRef.current?.click()
 
   const handleProjectFile = async (file) => {
@@ -210,11 +245,13 @@ export default function App() {
           const confirmDiscard = confirm('確定要放棄目前場景並載入新專案嗎？')
           if (!confirmDiscard) return
         }
+        // clear the scene before loading new project
         sceneRef.current.clearAll()
       }
 
-
+      //load the file as text, parse it as JSON, and load it into the scene
       const text = await file.text()
+      //parse the text as JSON
       const data = JSON.parse(text)
 
       if (data.version === 2) {
@@ -234,6 +271,7 @@ export default function App() {
     }
   }
 
+  // Listener to schedule an autosave after 800ms of inactivity
   const scheduleAutosave = useCallback(() => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
     autosaveTimerRef.current = setTimeout(async () => {
@@ -245,6 +283,7 @@ export default function App() {
     }, 800)
   }, [])
 
+  // Sync the objects state with the current scene's objects
   const syncObjects = useCallback(() => {
     if (!sceneRef.current) return
     setObjects(new Map(sceneRef.current.objects))
@@ -252,7 +291,7 @@ export default function App() {
   }, [scheduleAutosave])
 
 
-  // 初始化 Three.js 場景，只在元件第一次掛載時建立一次。
+  // initialize the scene manager and load any autosaved project on mount
   useEffect(() => {
     if (!canvasRef.current || sceneRef.current) return
     let cancelled = false
@@ -297,7 +336,7 @@ export default function App() {
   }, [])
 
 
-  // === 刪除所有物件 ===
+  // delete all objects in the scene, with confirmation prompts
   const handleDeleteAll = () => {
     try {
       if (sceneRef.current.objects.size > 0) {
@@ -319,7 +358,7 @@ export default function App() {
     }
   }
 
-  // === 拖曳匯入檔案 ===
+  //  file drop handler, determine file type and call the appropriate handler
   const handleFileDrop = (files) => {
     for (const file of files) {
       try {
@@ -335,6 +374,7 @@ export default function App() {
     }
   }
 
+  // fit the camera to the scene bounds
   const handleFitView = () => {
     try {
       sceneRef.current?.fitToScene()
@@ -343,16 +383,19 @@ export default function App() {
     }
   }
 
+  // toggle camera mode between fly and orbit, show a toast with the new mode
   const handleCemera = () => {
     const mode = sceneRef.current?.toggleCameraMode()
     toast(`相機模式：${mode === 'fly' ? '自由視角' : '環繞模式'}`, 'info')
   }
 
+  // toggle object visibility, update the scene and sync the objects state
   const handleToggleVisible = (id) => {
     sceneRef.current?.toggleVisible(id)
     syncObjects()
   }
 
+  // set object opacity, update the scene and sync the objects state
   const handleSetOpacity = (id, opacity) => {
     sceneRef.current?.setObjectOpacity(id, opacity)
     syncObjects()
@@ -367,7 +410,7 @@ export default function App() {
     }
   }
 
-  // === 剖面裁切 ===
+  // x,y,z plane sectioning handlers
   const handleToggleSection = () => {
     setSectionOpen(open => {
       const next = !open
@@ -376,6 +419,7 @@ export default function App() {
     })
   }
 
+  // toggle sectioning for a specific axis, update the scene and section state
   const handleToggleAxis = (axis, enabled) => {
     try {
       sceneRef.current?.setSectionEnabled(axis, enabled)
@@ -385,6 +429,7 @@ export default function App() {
     }
   }
 
+// change section position for a specific axis, update the scene and section state
   const handleChangePosition = (axis, position) => {
     try {
       sceneRef.current?.setSectionPosition(axis, position)
@@ -394,6 +439,7 @@ export default function App() {
     }
   }
 
+  // toggle section flip for a specific axis, update the scene and section state
   const handleToggleFlip = (axis, flipped) => {
     try {
       sceneRef.current?.setSectionFlip(axis, flipped)
@@ -403,6 +449,7 @@ export default function App() {
     }
   }
 
+  // reset sectioning for all axes, update the scene and section state
   const handleResetSection = () => {
     try {
       sceneRef.current?.resetSection()
@@ -413,7 +460,7 @@ export default function App() {
     }
   }
 
-  // === IFC 屬性查詢 ===
+  // ifc attribute query mode handlers
   const handleToggleQuery = () => {
     setQueryMode(prev => {
       const next = !prev
@@ -423,6 +470,7 @@ export default function App() {
     })
   }
 
+  // query element properties by objId and localId, update the elementQuery state
   const handleElementQuery = async (objId, localId) => {
     const objName = sceneRef.current?.objects?.get(objId)?.name
     setElementQuery({ loading: true, error: null, data: null, objName })

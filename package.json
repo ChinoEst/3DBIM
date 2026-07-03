@@ -11,7 +11,9 @@
     "test:e2e": "playwright test"
   },
   "vitest": {
-    "exclude": ["tests/e2e/**"]
+    "exclude": [
+      "tests/e2e/**"
+    ]
   },
   "dependencies": {
     "@thatopen/components": "^3.4.6",
@@ -26,6 +28,7 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.1",
+    "fake-indexeddb": "^6.2.5",
     "vite": "^5.0.0",
     "vitest": "^4.1.9"
   }

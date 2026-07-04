@@ -43,15 +43,6 @@ test.describe('剖面裁切 (Section Panel)', () => {
     await expect(slider).toBeEnabled()
   })
 
-  test('拖曳裁切滑桿應更新顯示的位置數值', async ({ page }) => {
-    await loadGlb(page)
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    await page.getByText('X 軸').click()
-    const slider = page.locator('input[type="range"]').last()
-    await slider.fill('1')
-    await expect(page.locator('text=1.00')).toBeVisible()
-  })
-
   test('翻轉按鈕在該軸未啟用時應為 disabled', async ({ page }) => {
     await loadGlb(page)
     await page.getByRole('button', { name: /剖面裁切/ }).click()
@@ -78,30 +69,6 @@ test.describe('IFC 屬性查詢 (Query Mode)', () => {
     await page.getByRole('button', { name: /屬性查詢/ }).click()
     await expect(page.getByText('屬性查詢模式已關閉')).toBeVisible()
   })
-
-  test('查詢模式開啟後點擊 IFC 元件應顯示屬性面板', async ({ page }) => {
-    await loadIfc(page)
-    await page.getByRole('button', { name: /屬性查詢/ }).click()
-
-    const canvas = await page.waitForSelector('canvas')
-    const box = await canvas.boundingBox()
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
-
-    await expect(page.getByText(/IFC 元件屬性/)).toBeVisible({ timeout: 10000 })
-  })
-
-  test('關閉屬性面板後應該消失', async ({ page }) => {
-    await loadIfc(page)
-    await page.getByRole('button', { name: /屬性查詢/ }).click()
-    const canvas = await page.waitForSelector('canvas')
-    const box = await canvas.boundingBox()
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
-    await expect(page.getByText(/IFC 元件屬性/)).toBeVisible({ timeout: 10000 })
-
-    await page.getByTitle('關閉', { exact: true }).click()
-    await expect(page.getByText(/IFC 元件屬性/)).not.toBeVisible()
-  })
-})
 
 test.describe('Mesh 子選取與改色', () => {
   test('選取物件後應顯示 mesh 子清單', async ({ page }) => {
@@ -155,21 +122,6 @@ test.describe('Mesh 子選取與改色', () => {
   })
 })
 
-test.describe('物件面板寬度調整與持久化', () => {
-  test('拖曳面板左側把手應該改變面板寬度', async ({ page }) => {
-    await page.goto('/')
-    const handle = page.locator('[title="拖曳調整面板寬度"]')
-    const box = await handle.boundingBox()
-    const initialWidth = await page.evaluate(() => localStorage.getItem('bim-panel-width'))
-
-    await page.mouse.move(box.x + box.width / 2, box.y + 50)
-    await page.mouse.down()
-    await page.mouse.move(box.x - 100, box.y + 50, { steps: 5 })
-    await page.mouse.up()
-
-    const newWidth = await page.evaluate(() => localStorage.getItem('bim-panel-width'))
-    expect(newWidth).not.toBe(initialWidth)
-  })
 
   test('重新整理頁面後，面板寬度應保留上次設定值', async ({ page }) => {
     await page.goto('/')

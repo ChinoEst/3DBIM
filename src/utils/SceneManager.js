@@ -244,11 +244,11 @@ export class SceneManager {
     }
   }
 
-  // 回傳目前「啟用中」的裁切平面陣列（給 renderer 跟 fragments model 共用）
+  // Rreturn an array of currently active clipping planes (THREE.Plane) for use in renderer and fragments.
   _activeClippingPlanes() {
     return Object.values(this.clipPlanes)
-      .filter(c => c.enabled)
-      .map(c => c.plane)
+      .filter(c => c.enabled) //filter out enabled is false
+      .map(c => c.plane) // get the THREE.Plane object
   }
 
   // 根據 enabled/position/flipped 重新計算單一軸的 plane.normal / plane.constant
@@ -264,8 +264,11 @@ export class SceneManager {
   // 把目前啟用的裁切平面套用到 renderer（GLB）以及所有 IFC 模型（fragments worker）
   _applyClipping() {
     try {
+      //for GLB
       const planes = this._activeClippingPlanes()
+      //give the planes to renderer for GLB to clip
       this.renderer.clippingPlanes = planes
+      //For IFC
       const frags = getFragments()
       frags.update(true)
     } catch (error) {
@@ -273,11 +276,12 @@ export class SceneManager {
     }
   }
 
-  // 開關單一軸的剖面裁切。第一次開啟時，如果還沒設定過位置，預設抓場景包圍盒中心。
+  // switch on/off a clipping plane along the specified axis, defaiult position is the center of the scene bounds if not set yet
   setSectionEnabled(axis, enabled) {
     try {
       const c = this.clipPlanes[axis]
       if (!c) return
+      //!! : convert to boolean
       c.enabled = !!enabled
       if (c.enabled && c.position === null) {
         const bounds = this.getSceneBounds()
@@ -341,7 +345,10 @@ export class SceneManager {
     return out
   }
 
-  // 場景目前所有物件的世界包圍盒，給剖面滑桿決定可拖曳範圍用
+
+  /*
+  box3: bbox contain all obj
+  */
   getSceneBounds() {
     try {
       const meshes = [...this.objects.values()].map(o => o.mesh)
@@ -356,13 +363,12 @@ export class SceneManager {
     }
   }
 
-  // === IFC 屬性查詢 ===
-  // 查詢模式開關：開啟時，點擊 IFC 元件除了原本的選取行為外，還會觸發 onElementQuery
+  // IFC arrtibute query: enable/disable query mode, when enabled, clicking on an IFC element will trigger onElementQuery callback
   setQueryMode(enabled) {
     this._queryMode = !!enabled
   }
 
-  // 讀取單一 IFC 元件（localId）的屬性資料，包含內建屬性與 Pset（屬性組）
+  // load IFC element (localId) properties, including built-in attributes and Pset (property sets)
   async getElementProperties(objId, localId) {
     try {
       const obj = this.objects.get(objId)
@@ -381,13 +387,13 @@ export class SceneManager {
     }
   }
 
-  // 設定「未選取物件」要再變淡的係數（0~1），例如 0.4 代表未選取物件的 opacity 會再乘上 0.4
+  // set the opacity factor for unselected objects when another object is selected, range from 0 to 1, default is 0.4
   setUnselectedDimFactor(factor) {
     try {
       const value = Math.min(1, Math.max(0, Number(factor)))
       if (Number.isNaN(value)) return
       this._unselectedDimFactor = value
-      // 若目前有選取中的物件，立即套用新的淡化係數
+      // unselected objects will have their opacity multiplied by this factor when another object is selected
       if (this.selectedObject) {
         const id = this._getIdByMesh(this.selectedObject)
         if (id) this._applyUnselectedDim(id)
@@ -397,7 +403,8 @@ export class SceneManager {
     }
   }
 
-  // 幫單一 mesh 加上虛線邊框（不影響原本 material）
+  /*
+  //加虛線
   _addOutlineTo(mesh) {
     try {
       if (!mesh.geometry) return
@@ -411,7 +418,9 @@ export class SceneManager {
       console.error(error)
     }
   }
+  */
 
+  /*
   // 清除所有選取邊框並釋放 geometry
   _clearOutlines() {
     try {
@@ -424,10 +433,11 @@ export class SceneManager {
       console.error(error)
     }
   }
+    */
 
-  // === 子清單：單一 mesh 選取與改色 ===
 
-  // 取得指定物件底下所有可選取 mesh 的清單（回傳可序列化資料，給 React 用）
+  // sublist all meshes under the specified object, return serializable data for React UI
+
   listMeshes(objectId) {
     try {
       const obj = this.objects.get(objectId)
@@ -435,7 +445,6 @@ export class SceneManager {
       const list = []
       let counter = 0
       obj.mesh.traverse(c => {
-        // isMesh 也會抓到 IFC 的 InstancedMesh；這是預期內的，只是改色/邊框會套用到整批 instance
         if (c.isMesh) {
           const material = Array.isArray(c.material) ? c.material[0] : c.material
           const color = material?.color ? '#' + material.color.getHexString() : '#ffffff'
@@ -449,6 +458,7 @@ export class SceneManager {
     }
   }
 
+  //search for a mesh by its uuid under the specified object, return the mesh reference or null if not found
   _findMeshByUuid(objectId, meshUuid) {
     try {
       const obj = this.objects.get(objectId)
@@ -464,15 +474,14 @@ export class SceneManager {
     }
   }
 
-  // 從清單點選單一 mesh：用 opacity 淡化標示（該 mesh 維持原色調，其餘全場景變淡）
+
   selectMesh(objectId, meshUuid) {
     try {
-      this.deselectMesh() // 先清掉上一個被清單選取的 mesh
+      this.deselectMesh() 
       const mesh = this._findMeshByUuid(objectId, meshUuid)
       if (!mesh || !mesh.geometry) return
 
       this._selectedMeshRef = mesh
-      // mesh 層級也套用「選取維持原色調，其他都變更淡」的效果；範圍是整個場景（所有物件的所有 mesh）
       this._applyMeshUnselectedDim(meshUuid)
     } catch (error) {
       console.error(error)
@@ -488,11 +497,10 @@ export class SceneManager {
     }
   }
 
-  // 讓場景中除了 selectedMeshUuid 以外的所有 mesh（包含其他物件底下的 mesh），
-  // opacity 在目前顯示值的基礎上再變淡（跟 _applyUnselectedDim 同一套邏輯，只是粒度換成整個場景的 mesh）
+  // unselected meshes will have their opacity multiplied by this._unselectedDimFactor when another mesh is selected
   _applyMeshUnselectedDim(selectedMeshUuid) {
     try {
-      // 記錄變淡前每個 mesh 目前的 opacity 與 mesh reference，deselectMesh 時要還原成這個值
+      // record all the original opacity of meshes before applying the unselected dim effect, so we can restore them later
       this._meshDimRestore = new Map()
       for (const obj of this.objects.values()) {
         obj.mesh.traverse(c => {
@@ -509,7 +517,7 @@ export class SceneManager {
     }
   }
 
-  // 還原被 mesh 層級選取變淡的其他 mesh
+  
   _restoreMeshUnselectedDim() {
     try {
       if (!this._meshDimRestore) return
@@ -522,34 +530,33 @@ export class SceneManager {
     }
   }
 
-  // 對單一 mesh 套用 opacity，邏輯跟 _applyOpacityToMaterials 相同，差別是只作用在單一 mesh 上
+  // set the opacity of a single mesh, handling both single and array materials
   _setSingleMeshOpacity(mesh, value) {
     if (!mesh.material) return
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     materials.forEach(material => {
       if (!material || typeof material.opacity !== 'number') return
+      //directly change on mesh
       material.opacity = value
       material.transparent = value < 1
       material.needsUpdate = true
     })
   }
 
-  // 改變單一 mesh 的顏色。第一次改色時會 clone material，
-  // 避免多個 mesh 共用同一份 material 實例時改色互相連坐。
-  // 注意：material 有可能是陣列（IFC/fragments 常見，例如不透明+半透明分層），
-  // 一定要用陣列的方式處理，不能假設一定是單一 material 物件。
+  //for shared mesh
   setMeshColor(objectId, meshUuid, hexColor) {
     try {
       const mesh = this._findMeshByUuid(objectId, meshUuid)
       if (!mesh || !mesh.material) return
-
+      //find shared mesh
       if (!mesh.userData.__ownMaterial) {
         mesh.material = Array.isArray(mesh.material)
           ? mesh.material.map(m => m.clone())
-          : mesh.material.clone()
-        mesh.userData.__ownMaterial = true
+          : mesh.material.clone()//clone the material for which chang e color and  avoid changing the color of other meshes that share the same material
+        mesh.userData.__ownMaterial = true //now this mesh is unique, we can change it color.
       }
 
+      //set color for all materials of the mesh
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
       materials.forEach(material => {
         if (!material || !material.color) return
@@ -561,8 +568,7 @@ export class SceneManager {
     }
   }
 
-  // 取得單一 mesh 目前的顏色（回傳 '#rrggbb'），給 UI 顏色選取器開啟時當預設值用，
-  // 而不是每次都顯示同一個寫死的預設色
+
   getMeshColor(objectId, meshUuid) {
     try {
       const mesh = this._findMeshByUuid(objectId, meshUuid)
@@ -773,15 +779,11 @@ export class SceneManager {
   selectById(id) {
     try {
       this.deselect()
-      this.deselectMesh() // 換選取物件時，清單子選取狀態也要重置
+      this.deselectMesh() 
       const obj = this.objects.get(id)
       if (!obj) return
       this.selectedObject = obj.mesh
-
-      // 選取物件本身維持原本材質與色調，只確保 opacity 是它原本設定的基準值
-      // （不加邊框、不變色；邊框只給清單選取的單一 mesh 用，見 selectMesh）
       this._applyOpacityToMaterials(obj.mesh, obj.opacity ?? 1)
-      // 其餘未選取物件變得更淡
       this._applyUnselectedDim(id)
 
       console.log('selectById:', id, obj.mesh)
@@ -793,7 +795,7 @@ export class SceneManager {
     }
   }
 
-  // 讓除了 selectedId 以外的所有物件，opacity 在原本設定值的基礎上再乘上 _unselectedDimFactor
+
   _applyUnselectedDim(selectedId) {
     try {
       for (const [id, obj] of this.objects.entries()) {
@@ -806,15 +808,14 @@ export class SceneManager {
     }
   }
 
+
   deselect() {
     try {
       if (!this.selectedObject) return
-      // 先清掉所有選取邊框，避免殘留在場景裡
-      this._clearOutlines()
+      //this._clearOutlines()
       this.deselectMesh()
       this.transformControls.detach()
       this.selectedObject = null
-      // 所有物件恢復成各自原本設定的 opacity（取消「未選取變淡」的效果）
       for (const obj of this.objects.values()) {
         this._applyOpacityToMaterials(obj.mesh, obj.opacity ?? 1)
       }
@@ -884,12 +885,10 @@ export class SceneManager {
       const obj = this.objects.get(id)
       if (!obj) return
       const value = Math.min(1, Math.max(0, Number(opacity) ?? 1))
-      obj.opacity = value // 使用者設定的「原本色調」基準值，deselect 後會回到這個值
+      obj.opacity = value 
 
       const isSelected = this.selectedObject === obj.mesh
       const somethingSelected = !!this.selectedObject
-      // 未選取 + 有其他物件正被選取中 → 疊加變淡係數；
-      // 其餘情況（自己被選取、或沒有任何選取）→ 直接套用原始值
       const displayValue = computeDisplayOpacity(value, isSelected, somethingSelected, this._unselectedDimFactor)
       this._applyOpacityToMaterials(obj.mesh, displayValue)
     } catch (error) {
@@ -911,7 +910,7 @@ export class SceneManager {
     try {
       const id = `ifc_${Date.now()}`
       model.useCamera(this.camera)
-      // 讓這個模型的 fragments worker 也套用目前（以及之後）啟用中的剖面裁切平面
+      // 3D clipping planes for IFC models are handled by the fragments worker, so we need to provide a callback to get the current active clipping planes
       model.getClippingPlanesEvent = () => this._activeClippingPlanes()
       this.scene.add(object)
       this.objects.set(id, { mesh: object, model, fragmentBytes, type: 'ifc', name: filename, opacity: 1 })
@@ -922,7 +921,7 @@ export class SceneManager {
     }
 }
 
-  // === GLB ===
+
   async loadGLB(file) {
     try {
       const fileBuffer = await file.arrayBuffer()
@@ -1003,7 +1002,7 @@ export class SceneManager {
   }
 
 
-  // === Camera fit ===
+
   //auto adjust camera for view all object
   fitToScene() {
     try {
@@ -1035,7 +1034,7 @@ export class SceneManager {
     }
   }
 
-  // === Save / Load ===
+
   //output: .json
   exportProjectFull() {
     try {

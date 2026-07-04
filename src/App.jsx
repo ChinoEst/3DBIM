@@ -525,6 +525,8 @@ export default function App() {
         <IfcPropertyPanel query={elementQuery} onClose={() => setElementQuery(null)} />
       )}
 
+
+      {/* ObjectPanel is a sub component, so all function pass for should be defined with usecallback */}
       <ObjectPanel
         objects={objects}
         selectedId={selectedId}

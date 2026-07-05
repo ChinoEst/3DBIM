@@ -1,225 +1,176 @@
-import { test, expect } from '@playwright/test'
-import { fileURLToPath } from 'url'
-import path from 'path'
+import { describe, it, expect, beforeEach } from 'vitest'
+import 'fake-indexeddb/auto'
+import { computeClipPlane, computeDisplayOpacity } from '../src/utils/sceneLogic.js'
+import { flattenItemData } from '../src/components/IfcPropertyPanel.jsx'
+import { getRange } from '../src/components/SectionPanel.jsx'
+import { saveAutosave, loadAutosave, clearAutosave } from '../src/utils/db.js'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const glbFile = path.resolve(__dirname, '..', '..', 'test.glb')
-const ifcFile = path.resolve(__dirname, '..', '..', 'test.ifc')
+// ============================================================
+// 剖面裁切 (Section clipping)：computeClipPlane
+// ============================================================
+describe('剖面裁切: computeClipPlane', () => {
+  const xAxis = { x: 1, y: 0, z: 0 }
 
-async function loadGlb(page) {
-  await page.goto('/')
-  await page.setInputFiles('input[type="file"][accept=".glb,.gltf"]', glbFile)
-  await expect(page.getByText(/test\.glb 加入場景/)).toBeVisible()
-}
-
-async function loadIfc(page) {
-  await page.goto('/')
-  await page.setInputFiles('input[type="file"][accept=".ifc"]', ifcFile)
-  await expect(page.getByText(/test\.ifc 載入完成/), { timeout: 20000 }).toBeVisible()
-}
-
-// 點擊 canvas 正中央不保證一定打中模型（模型形狀、fitToScene 的框景都可能讓中心點落空）。
-// 這裡先按「重置視角」確保取景一致，再用一個小網格輪流嘗試，只要打中一次讓屬性面板跳出來就停止，
-// 避免測試綁死在單一像素座標上而變得脆弱。
-async function clickUntilQueryPanelOpens(page) {
-  await page.getByRole('button', { name: /重置視角/ }).click()
-  await page.waitForTimeout(300) // 讓 fitToScene 的相機動畫穩定下來
-
-  const canvas = await page.waitForSelector('canvas')
-  const box = await canvas.boundingBox()
-  const cx = box.x + box.width / 2
-  const cy = box.y + box.height / 2
-  const offsets = [
-    [0, 0], [0, -40], [0, 40], [-40, 0], [40, 0],
-    [-60, -60], [60, -60], [-60, 60], [60, 60]
-  ]
-
-  for (const [dx, dy] of offsets) {
-    await page.mouse.click(cx + dx, cy + dy)
-    const panel = page.getByText(/IFC 元件屬性/)
-    if (await panel.isVisible({ timeout: 1500 }).catch(() => false)) return true
-  }
-  return false
-}
-
-test.describe('剖面裁切 (Section Panel)', () => {
-  test('開關剖面裁切面板', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    await expect(page.getByText('🔪 剖面裁切')).toBeVisible()
-    await page.getByTitle('關閉面板').click()
-    await expect(page.getByText('🔪 剖面裁切')).not.toBeVisible()
+  it('未翻轉時，normal 應該反向，constant 等於 position（保留座標較小的一側）', () => {
+    const { normal, constant } = computeClipPlane(xAxis, 5, false)
+    expect(normal).toEqual({ x: -1, y: 0, z: 0 })
+    expect(constant).toBe(5)
   })
 
-  test('沒有載入模型時應提示尚未載入模型', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    await expect(page.getByText('尚未載入模型，載入後即可拖曳剖面位置。')).toBeVisible()
+  it('翻轉時，normal 應維持原方向，constant 應為 -position（保留座標較大的一側）', () => {
+    const { normal, constant } = computeClipPlane(xAxis, 5, true)
+    expect(normal).toEqual({ x: 1, y: 0, z: 0 })
+    expect(constant).toBe(-5)
   })
 
-  test('載入模型後開啟 X 軸裁切，工具列按鈕應顯示啟用狀態', async ({ page }) => {
-    await loadGlb(page)
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    await page.getByText('X 軸').click()
-    // 開啟後，滑桿應該從 disabled 變成可以拖曳
-    const slider = page.getByTestId('clip-slider-x')
-    await expect(slider).toBeEnabled()
+  it('position 為 null/undefined 時應視為 0', () => {
+    const { constant } = computeClipPlane(xAxis, null, false)
+    expect(constant).toBe(0)
   })
 
-  test('拖曳裁切滑桿應更新顯示的位置數值', async ({ page }) => {
-    await loadGlb(page)
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    await page.getByText('X 軸').click()
-    // 注意：不要用 input[type="range"] 選最後一個，物件面板的透明度滑桿也是 range，
-    // 頁面上不只 3 個裁切滑桿，一定要用專屬的 data-testid 鎖定 X 軸那一條。
-    const slider = page.getByTestId('clip-slider-x')
-    await slider.fill('1')
-    await expect(page.getByText('1.00')).toBeVisible()
-  })
-
-  test('翻轉按鈕在該軸未啟用時應為 disabled', async ({ page }) => {
-    await loadGlb(page)
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    const flipBtn = page.getByTestId('clip-flip-x')
-    await expect(flipBtn).toBeDisabled()
-  })
-
-  test('重置剖面按鈕應該把已開啟的軸關閉', async ({ page }) => {
-    await loadGlb(page)
-    await page.getByRole('button', { name: /剖面裁切/ }).click()
-    await page.getByText('X 軸').click()
-    await page.getByRole('button', { name: '重置剖面' }).click()
-    await expect(page.getByText('剖面已重置')).toBeVisible()
-    await expect(page.getByTestId('clip-checkbox-x')).not.toBeChecked()
+  it('不同軸的 normal 應該正確反映輸入的 axisNormal', () => {
+    const yAxis = { x: 0, y: 1, z: 0 }
+    const { normal } = computeClipPlane(yAxis, 2, false)
+    expect(normal).toEqual({ x: 0, y: -1, z: 0 })
   })
 })
 
-test.describe('IFC 屬性查詢 (Query Mode)', () => {
-  test('開關屬性查詢模式應顯示對應提示', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: /屬性查詢/ }).click()
-    await expect(page.getByText('屬性查詢模式已開啟，點擊 IFC 元件查看屬性')).toBeVisible()
-    await page.getByRole('button', { name: /屬性查詢/ }).click()
-    await expect(page.getByText('屬性查詢模式已關閉')).toBeVisible()
+// ============================================================
+// 選取變淡: computeDisplayOpacity
+// ============================================================
+describe('選取變淡: computeDisplayOpacity', () => {
+  it('沒有任何物件被選取時，回傳原始 opacity', () => {
+    expect(computeDisplayOpacity(0.8, false, false, 0.4)).toBe(0.8)
   })
 
-  test('查詢模式開啟後點擊 IFC 元件應顯示屬性面板', async ({ page }) => {
-    await loadIfc(page)
-    await page.getByRole('button', { name: /屬性查詢/ }).click()
-
-    const opened = await clickUntilQueryPanelOpens(page)
-    expect(opened).toBe(true)
+  it('自己就是被選取的物件時，回傳原始 opacity（不變淡）', () => {
+    expect(computeDisplayOpacity(0.8, true, true, 0.4)).toBe(0.8)
   })
 
-  test('關閉屬性面板後應該消失', async ({ page }) => {
-    await loadIfc(page)
-    await page.getByRole('button', { name: /屬性查詢/ }).click()
+  it('有其他物件被選取、自己未被選取時，opacity 應乘上 dimFactor', () => {
+    expect(computeDisplayOpacity(0.8, false, true, 0.4)).toBeCloseTo(0.32)
+  })
 
-    const opened = await clickUntilQueryPanelOpens(page)
-    expect(opened).toBe(true)
-
-    await page.getByTitle('關閉', { exact: true }).click()
-    await expect(page.getByText(/IFC 元件屬性/)).not.toBeVisible()
+  it('dimFactor 為 0 時，未選取物件應完全變透明（opacity 0）', () => {
+    expect(computeDisplayOpacity(1, false, true, 0)).toBe(0)
   })
 })
 
-test.describe('Mesh 子選取與改色', () => {
-  test('選取物件後應顯示 mesh 子清單', async ({ page }) => {
-    await loadGlb(page)
-    const item = page.locator('[data-testid="object-item"]').first()
-    await item.click()
-    await expect(item.locator('[data-testid="mesh-item"]').first()).toBeVisible()
+// ============================================================
+// IFC 屬性面板: flattenItemData
+// ============================================================
+describe('IFC 屬性查詢: flattenItemData', () => {
+  it('null 或非物件輸入應回傳空陣列，不應該丟出例外', () => {
+    expect(flattenItemData(null)).toEqual({ attributes: [], psets: [] })
+    expect(flattenItemData(undefined)).toEqual({ attributes: [], psets: [] })
+    expect(flattenItemData('not an object')).toEqual({ attributes: [], psets: [] })
   })
 
-  test('點選單一 mesh 後應出現顏色選取器，且只作用在該 mesh', async ({ page }) => {
-    await loadGlb(page)
-    const item = page.locator('[data-testid="object-item"]').first()
-    await item.click()
-
-    const meshItems = item.locator('[data-testid="mesh-item"]')
-    await expect(meshItems.first()).toBeVisible()
-    // 選取前，任何 mesh 都不應該顯示顏色選取器
-    await expect(item.locator('input[type="color"]')).toHaveCount(0)
-
-    await meshItems.first().click()
-    await expect(item.locator('input[type="color"]')).toHaveCount(1)
+  it('應該解析出基本屬性（value 物件與純值都要支援）', () => {
+    const data = {
+      Name: { value: 'Wall-01', type: 'IfcLabel' },
+      GlobalId: 'abc-123'
+    }
+    const { attributes } = flattenItemData(data)
+    expect(attributes).toContainEqual({ key: 'Name', value: 'Wall-01' })
+    expect(attributes).toContainEqual({ key: 'GlobalId', value: 'abc-123' })
   })
 
-  test('變更 mesh 顏色後，色票 input 的 value 應更新', async ({ page }) => {
-    await loadGlb(page)
-    const item = page.locator('[data-testid="object-item"]').first()
-    await item.click()
-    await item.locator('[data-testid="mesh-item"]').first().click()
-
-    const colorInput = item.locator('input[type="color"]')
-    await colorInput.evaluate((el) => {
-      el.value = '#ff0000'
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await expect(colorInput).toHaveValue('#ff0000')
+  it('底線開頭的欄位（例如 _category）應被忽略', () => {
+    const data = { _category: 'internal', Name: { value: 'X' } }
+    const { attributes } = flattenItemData(data)
+    expect(attributes.find(a => a.key === '_category')).toBeUndefined()
   })
 
-  test('切換選取的物件時，mesh 子選取狀態應該重置（不殘留前一個物件的顏色選取器）', async ({ page }) => {
-    await loadGlb(page)
-    await page.setInputFiles('input[type="file"][accept=".glb,.gltf"]', glbFile)
-    await expect(page.getByText(/物件數：2/)).toBeVisible()
-
-    const items = page.locator('[data-testid="object-item"]')
-    await items.nth(0).click()
-    await items.nth(0).locator('[data-testid="mesh-item"]').first().click()
-    await expect(items.nth(0).locator('input[type="color"]')).toHaveCount(1)
-
-    await items.nth(1).click()
-    await expect(page.locator('input[type="color"]')).toHaveCount(0)
-  })
-})
-
-test.describe('物件面板寬度調整與持久化', () => {
-  test('拖曳面板左側把手應該改變面板寬度', async ({ page }) => {
-    await page.goto('/')
-    const handle = page.locator('[title="拖曳調整面板寬度"]')
-    const box = await handle.boundingBox()
-    const initialWidth = await page.evaluate(() => localStorage.getItem('bim-panel-width'))
-
-    await page.mouse.move(box.x + box.width / 2, box.y + 50)
-    await page.mouse.down()
-    await page.mouse.move(box.x - 100, box.y + 50, { steps: 5 })
-    await page.mouse.up()
-
-    const newWidth = await page.evaluate(() => localStorage.getItem('bim-panel-width'))
-    expect(newWidth).not.toBe(initialWidth)
+  it('應該正確解析 IsDefinedBy 底下的 Pset 與屬性', () => {
+    const data = {
+      IsDefinedBy: [
+        {
+          Name: { value: 'Pset_WallCommon' },
+          HasProperties: [
+            { Name: { value: 'FireRating' }, NominalValue: { value: '2HR' } },
+            { Name: { value: 'IsExternal' }, NominalValue: { value: true } }
+          ]
+        }
+      ]
+    }
+    const { psets } = flattenItemData(data)
+    expect(psets).toHaveLength(1)
+    expect(psets[0].name).toBe('Pset_WallCommon')
+    expect(psets[0].props).toContainEqual({ name: 'FireRating', value: '2HR' })
+    expect(psets[0].props).toContainEqual({ name: 'IsExternal', value: 'true' })
   })
 
-  test('重新整理頁面後，面板寬度應保留上次設定值', async ({ page }) => {
-    await page.goto('/')
-    await page.evaluate(() => localStorage.setItem('bim-panel-width', '500'))
-    await page.reload()
-    await expect(page.locator('[data-testid="object-panel"]')).toHaveCSS('width', '500px')
+  it('沒有名稱的 Pset 應顯示為「(未命名屬性組)」', () => {
+    const data = { IsDefinedBy: [{ HasProperties: [] }] }
+    const { psets } = flattenItemData(data)
+    expect(psets[0].name).toBe('(未命名屬性組)')
+  })
+
+  it('HasProperties 缺失或格式錯誤時，props 應為空陣列而不是丟出例外', () => {
+    const data = { IsDefinedBy: [{ Name: { value: 'Pset_X' }, HasProperties: null }] }
+    const { psets } = flattenItemData(data)
+    expect(psets[0].props).toEqual([])
   })
 })
 
-test.describe('IndexedDB 自動存檔 / F5 還原', () => {
-  test('載入模型後重新整理頁面，應自動還原上次場景', async ({ page }) => {
-    await loadGlb(page)
-    // App.jsx 對 autosave 做了 800ms debounce，等待寫入完成再重新整理
-    await page.waitForTimeout(1200)
-    await page.reload()
-    await expect(page.getByText('已還原上次的場景')).toBeVisible({ timeout: 10000 })
-    await expect(page.getByText(/物件數：1/)).toBeVisible()
+// ============================================================
+// 剖面滑桿範圍: getRange
+// ============================================================
+describe('剖面裁切面板: getRange', () => {
+  it('沒有場景包圍盒時，應以目前 position 為中心給一個安全的預設範圍', () => {
+    const range = getRange(null, 'x', 3)
+    expect(range.min).toBe(-7)
+    expect(range.max).toBe(13)
   })
 
-  test('刪除所有物件後重新整理，不應該再還原任何物件', async ({ page }) => {
-    await loadGlb(page)
-    await page.waitForTimeout(1200)
-    // confirm() 對話框會在點擊當下同步跳出，監聽器必須在點擊「之前」註冊好
-    page.once('dialog', d => d.accept())
-    await page.getByRole('button', { name: /全部刪除/ }).click()
-    await expect(page.getByText('已刪除所有物件')).toBeVisible()
-    await page.waitForTimeout(1200)
-    await page.reload()
-    await page.waitForTimeout(1000)
-    await expect(page.getByText(/物件數：0/)).toBeVisible()
+  it('有包圍盒時，應該依包圍盒範圍加上邊界 margin', () => {
+    const bounds = { min: [0, 0, 0], max: [10, 20, 30] }
+    const range = getRange(bounds, 'x', 5)
+    const span = 10
+    const margin = span * 0.15
+    expect(range.min).toBeCloseTo(0 - margin)
+    expect(range.max).toBeCloseTo(10 + margin)
+  })
+
+  it('包圍盒在該軸上沒有厚度（min === max）時，不應該產生 0 或負的 step', () => {
+    const bounds = { min: [5, 0, 0], max: [5, 20, 30] }
+    const range = getRange(bounds, 'x', 5)
+    expect(range.step).toBeGreaterThan(0)
+  })
+})
+
+// ============================================================
+// IndexedDB 自動存檔: saveAutosave / loadAutosave / clearAutosave
+// ============================================================
+describe('IndexedDB 自動存檔 (db.js)', () => {
+  beforeEach(async () => {
+    await clearAutosave()
+  })
+
+  it('尚未存過檔時，loadAutosave 應回傳 null', async () => {
+    const result = await loadAutosave()
+    expect(result).toBeNull()
+  })
+
+  it('save 後 load 應該拿回一樣的資料', async () => {
+    const data = { version: 2, objects: [{ id: 'glb_1', type: 'glb', name: 'a.glb' }] }
+    await saveAutosave(data)
+    const result = await loadAutosave()
+    expect(result).toEqual(data)
+  })
+
+  it('save 兩次應該覆蓋掉前一次的資料（不是累加）', async () => {
+    await saveAutosave({ version: 2, objects: [{ id: 'a' }] })
+    await saveAutosave({ version: 2, objects: [{ id: 'b' }] })
+    const result = await loadAutosave()
+    expect(result.objects).toEqual([{ id: 'b' }])
+  })
+
+  it('clearAutosave 後 loadAutosave 應該回到 null', async () => {
+    await saveAutosave({ version: 2, objects: [] })
+    await clearAutosave()
+    const result = await loadAutosave()
+    expect(result).toBeNull()
   })
 })

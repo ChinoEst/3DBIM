@@ -1,0 +1,10 @@
+@"
+node_modules
+dist
+test-results
+tests
+.github
+*.ifc
+*.glb
+test.json
+"@ | Set-Content .dockerignore -Encoding UTF8

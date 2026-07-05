@@ -3,14 +3,19 @@ import * as THREE from 'three'
 
 let fragments = null
 
-export function getFragments() {
+export async function initFragments() {
   if (fragments) return fragments
   /*
   初始化 FragmentsModels 實例 
   activate worker.mjs, worker is subtrhead.
   prepare to  load ifc file and convert to fragments
   */
-  fragments = new FRAGS.FragmentsModels('/worker.mjs')
+  const workerUrl = await FRAGS.FragmentsModels.getWorker()
+  fragments = new FRAGS.FragmentsModels(workerUrl)
+  return fragments
+}
+
+export function getFragments() {
   return fragments
 }
 

@@ -1,6 +1,6 @@
 ﻿import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { SceneManager } from './utils/SceneManager.js'
-import { loadIFCFile } from './utils/ifcLoader.js'
+import {initFragments, loadIFCFile } from './utils/ifcLoader.js'
 import Toolbar from './components/Toolbar.jsx'
 import ObjectPanel from './components/ObjectPanel.jsx'
 import LoadingOverlay from './components/LoadingOverlay.jsx'
@@ -293,9 +293,14 @@ export default function App() {
 
   // initialize the scene manager and load any autosaved project on mount
   useEffect(() => {
-    if (!canvasRef.current || sceneRef.current) return
-    let cancelled = false
+  if (!canvasRef.current || sceneRef.current) return
+  let cancelled = false
+  
+  ;(async () => {
     try {
+      await initFragments()
+      if (cancelled) return
+
       const sm = new SceneManager(canvasRef.current)
       sm.onSelect = (id) => setSelectedId(id)
       sm.onDeselect = () => setSelectedId(null)
@@ -303,37 +308,32 @@ export default function App() {
       sm.onChange = () => scheduleAutosave()
       sceneRef.current = sm
 
-      ;(async () => {
-        try {
-          const saved = await loadAutosave()
-          if (cancelled) return
-          if (saved?.objects?.length) {
-            setLoading({ message: '還原上次工作階段…', progress: null })
-            await sm.loadProjectFull(saved)
-            if (cancelled) return
-            sm.fitToScene()
-            syncObjects()
-            toast('已還原上次的場景', 'info')
-          }
-        } catch (err) {
-          if (!cancelled) {
-            console.error('還原自動存檔失敗', err)
-            toast('還原上次場景失敗', 'error')
-          }
-        } finally {
-          if (!cancelled) setLoading(null)
-        }
-      })()
-
-      return () => {
-        cancelled = true
-        sm.destroy()
-        sceneRef.current = null
+      const saved = await loadAutosave()
+      if (cancelled) return
+      if (saved?.objects?.length) {
+        setLoading({ message: '還原上次工作階段…', progress: null })
+        await sm.loadProjectFull(saved)
+        if (cancelled) return
+        sm.fitToScene()
+        syncObjects()
+        toast('已還原上次的場景', 'info')
       }
     } catch (err) {
-      console.error(err)
+      if (!cancelled) {
+        console.error(err)
+        toast('初始化失敗', 'error')
+      }
+    } finally {
+      if (!cancelled) setLoading(null)
     }
-  }, [])
+  })()
+
+  return () => {
+    cancelled = true
+    sceneRef.current?.destroy()
+    sceneRef.current = null
+  }
+}, [])
 
 
   // delete all objects in the scene, with confirmation prompts

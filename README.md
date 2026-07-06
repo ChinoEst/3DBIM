@@ -144,4 +144,7 @@ tests/
 ├── logic.test.js                 # 單元測試
 ├── new-features.test.js          # 單元測試（新功能）
 └── e2e/                          # Playwright 端對端測試
+
+.github/
+└── workflows/                    # GitHub Actions CI 設定
 ```

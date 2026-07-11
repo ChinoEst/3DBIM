@@ -15,7 +15,7 @@ export default function DropZone({ onFileDrop }) {
   useEffect(() => {
     const onDragEnter = (e) => {
       e.preventDefault()
-      setDragCount(c => c + 1)
+      setDragCount(c => c + 1)  //why not use setDragCount(c + 1) it must get pre c
       setDragging(true)
     }
 
@@ -32,7 +32,7 @@ export default function DropZone({ onFileDrop }) {
       e.preventDefault() // prevent browser open file
       setDragging(false) // reset dragging state
       setDragCount(0)  // reset dragCount
-      const files = [...e.dataTransfer.files] // convert FileList to array
+      const files = [...e.dataTransfer.files] // first get file and convert FileList to array
       if (files.length > 0) onFileDrop(files) // call parent function
     }
 

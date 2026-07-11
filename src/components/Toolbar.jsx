@@ -103,19 +103,19 @@ export default function Toolbar({
       <span style={styles.label}>操作</span>
 
       <ToolBtn
-        icon="✥" label="位移 W"
+        icon="✥" label="位移 Z"
         active={transformMode === 'translate'}
         onClick={() => onTransformMode('translate')}
         title="位移 (W)"
       />
       <ToolBtn
-        icon="↻" label="旋轉 E"
+        icon="↻" label="旋轉 X"
         active={transformMode === 'rotate'}
         onClick={() => onTransformMode('rotate')}
         title="旋轉 (E)"
       />
       <ToolBtn
-        icon="⊡" label="縮放 R"
+        icon="⊡" label="縮放 CS"
         active={transformMode === 'scale'}
         onClick={() => onTransformMode('scale')}
         title="縮放 (R)"

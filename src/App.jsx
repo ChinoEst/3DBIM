@@ -37,7 +37,7 @@ export default function App() {
   const [selectedMeshId, setSelectedMeshId] = useState(null)
   const [transformMode, setTransformMode] = useState('translate')
   const [loading, setLoading] = useState(null) // { message, progress }
-  const { toasts, toast } = useToast()
+  const {toasts, toast } = useToast()
   
   // x, y, z -plane sectioning
   const [sectionOpen, setSectionOpen] = useState(false)

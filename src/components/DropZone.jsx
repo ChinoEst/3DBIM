@@ -47,7 +47,7 @@ export default function DropZone({ onFileDrop }) {
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
     }
-  }, [onFileDrop])
+  }, [onFileDrop])//監聽器宣告一次就好所以[]就可以
 
   if (!dragging) return null 
 

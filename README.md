@@ -67,6 +67,7 @@ npm run preview
 - 顯示場景中所有物件，可個別調整**顯示/隱藏**、**透明度**、**改名**、**刪除**。
 - 點開單一物件可看到底下的 **mesh 子清單**，可針對單一 mesh 個別選取並改變顏色。
 - 面板左側邊界可拖曳調整寬度，設定會保存在瀏覽器 `localStorage`，重整頁面後仍會維持上次的寬度。
+- 拖曳透明度滑桿可淡化物件，輔助檢視物件之間的遮擋關係。
 
 ### 剖面裁切（Section Clipping）
 
@@ -144,4 +145,7 @@ tests/
 ├── logic.test.js                 # 單元測試
 ├── new-features.test.js          # 單元測試（新功能）
 └── e2e/                          # Playwright 端對端測試
+
+.github/
+└── workflows/                    # GitHub Actions CI 設定
 ```

@@ -57,13 +57,14 @@ export async function loadIFCFile(file, onProgress) {
     const model = await frags.load(fragmentBytes, { modelId: file.name })
     //Render, default: lazy loading, true: update now
     await frags.update(true)
-    //FragmentsModels 統一管理所有模型的渲染,NO model.update
+    //FragmentsModels 統一管理所有模型的渲染,NO model.update, 不是透過react管理
 
     if (onProgress) onProgress(100)
 
     // 直接回傳 model.object，不 clone
+    // model 的所有屬性來自@thatopen/fragments
     model.object.name = file.name
-    return { object: model.object, model, fragmentBytes }
+    return { object: model.object, model:model, fragmentBytes:fragmentBytes }
   } catch (error) {
     console.error(error)
     throw new Error(error?.message || '載入 IFC 失敗')

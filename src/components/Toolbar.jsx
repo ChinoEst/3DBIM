@@ -60,6 +60,7 @@ const styles = {
 
 
 //React function 開頭必須大寫, return JSX (<div>...</div>)
+//統一定義button格式
 function ToolBtn({ label, icon, active, onClick, variant, title }) {
   const s = {
     ...styles.btn,
@@ -106,19 +107,19 @@ export default function Toolbar({
         icon="✥" label="位移 Z"
         active={transformMode === 'translate'}
         onClick={() => onTransformMode('translate')}
-        title="位移 (W)"
+        title="位移 (Z)"
       />
       <ToolBtn
         icon="↻" label="旋轉 X"
         active={transformMode === 'rotate'}
         onClick={() => onTransformMode('rotate')}
-        title="旋轉 (E)"
+        title="旋轉 (X)"
       />
       <ToolBtn
-        icon="⊡" label="縮放 CS"
+        icon="⊡" label="縮放 C"
         active={transformMode === 'scale'}
         onClick={() => onTransformMode('scale')}
-        title="縮放 (R)"
+        title="縮放 (C)"
       />
       
       {hasSelection && (
@@ -150,6 +151,7 @@ export default function Toolbar({
       <ToolBtn icon="💾" label="儲存" onClick={onSave} title="儲存專案 (Ctrl+S)" />
       <ToolBtn icon="📁" label="開啟專案" onClick={onLoad} title="開啟專案檔" />
       <ToolBtn icon="⊙" label="重置視角" onClick={onFitView} title="重置相機視角" />
+      <ToolBtn icon="🎥" label="切換視角模式" onClick={onCemera} title="切換自由視角 / 環繞模式" />
     </div>
   )
 }

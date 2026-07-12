@@ -122,7 +122,10 @@ export default function App() {
   }
 
   // IFC loader
+
+  //click(), 模擬使用者按下，觸發input ref={ifcInputRef}中的onchange()
   const handleOpenIFC = () => ifcInputRef.current?.click()
+  
 
   const handleIFCFile = async (file) => {
     setLoading({ message: `載入 ${file.name}…`, progress: 0 })
@@ -163,7 +166,9 @@ export default function App() {
 
   const handleTransformMode = (mode) => {
     try {
+      //rerending in react
       setTransformMode(mode)
+      //rerending in Three.js
       sceneRef.current?.setTransformMode(mode)
     } catch (err) {
       console.error(err)
@@ -215,8 +220,9 @@ export default function App() {
       const url = URL.createObjectURL(blob)
 
       /*
-      a: a url tag not shown
+      a: a url tag not shown <a url= url from up> </a>
       */
+
       const a = document.createElement('a')
       a.href = url
       // set the download filename with timestamp
@@ -254,6 +260,7 @@ export default function App() {
       //parse the text as JSON
       const data = JSON.parse(text)
 
+      //過濾掉第一版的存法
       if (data.version === 2) {
         setLoading({ message: '還原專案中…', progress: null })
         await sceneRef.current.loadProjectFull(data)
@@ -286,6 +293,8 @@ export default function App() {
   // Sync the objects state with the current scene's objects
   const syncObjects = useCallback(() => {
     if (!sceneRef.current) return
+
+    //外部也會隨著顯示而有所變更，例如清單多了刪除，所以要去動到react重新渲染
     setObjects(new Map(sceneRef.current.objects))
     scheduleAutosave()
   }, [scheduleAutosave])
@@ -570,6 +579,10 @@ export default function App() {
         </span>
       </div>
 
+      {/*透過ref={}綁定，之後ifcInputRef.cuurent = 這個<input>,
+      onChanget 觸發時機使用者關掉檔案,
+      e.target.value = '' 使用完清空
+      */}
       <input ref={ifcInputRef} type="file" accept=".ifc" style={{ display: 'none' }}
         onChange={e => { if (e.target.files[0]) handleIFCFile(e.target.files[0]); e.target.value = '' }} />
       <input ref={glbInputRef} type="file" accept=".glb,.gltf" style={{ display: 'none' }}

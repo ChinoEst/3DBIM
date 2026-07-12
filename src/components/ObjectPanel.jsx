@@ -364,6 +364,7 @@ export default function ObjectPanel({
             >
               ✏️
             </span>
+            {/*  e.stopPropagation() 把操作鎖在這層，避免觸發click */}
             <span
               style={s.infoIcon}
               title="檔案資訊"
@@ -383,6 +384,7 @@ export default function ObjectPanel({
           </>
         )}
         </div>
+        {/*type="range":滑槓 */}
         <div style={s.opacityRow} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
           <input
             type="range"

@@ -14,7 +14,7 @@ export default function LoadingOverlay({ progress, message }) {
       zIndex: 50, gap: 20
     }}>
 
-      {/* Spinner */}
+      {/* graph of Spin and how it moves */}
       <div style={{
         width: 48, height: 48,
         border: '3px solid var(--border)',
@@ -22,7 +22,7 @@ export default function LoadingOverlay({ progress, message }) {
         borderRadius: '50%',
         animation: 'spin 0.8s linear infinite'
       }} />
-      {/*animation: 'spin 0.8s linear infinite'     function name time animation_mode count  */}
+      {/*animation: 'spin 0.8s linear infinite'     function name, time, animation_mode, count  */}
 
       <div style={{ textAlign: 'center' }}>
         <div style={{ color: 'var(--text-primary)', fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
@@ -49,7 +49,7 @@ export default function LoadingOverlay({ progress, message }) {
           </>
         )}
       </div>
-      {/* Add keyframes for spin animation */}
+      {/* definition animation:spin,  */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )

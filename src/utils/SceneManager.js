@@ -132,16 +132,28 @@ export class SceneManager {
       this._euler = new THREE.Euler(0, 0, 0, 'YXZ')
       this._euler.setFromQuaternion(this.camera.quaternion)
 
+      //e.preventDefault() 停止瀏覽器預設行為
+      //contextmenu 右鍵選單
       this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 
+      /*
+      e.button:
+      1:左鍵
+      2:右鍵
+      3:中鍵
+      */
+      
+      //mousedown按下的瞬間
       this.renderer.domElement.addEventListener('mousedown', (e) => {
         if (e.button === 2 && this._cameraMode === 'fly') {
           this._isRightDragging = true
         }
       })
+      //mouseup放開的瞬間
       window.addEventListener('mouseup', (e) => {
         if (e.button === 2) this._isRightDragging = false
       })
+      //mousemove移動中的鼠標
       this.renderer.domElement.addEventListener('mousemove', (e) => {
         if (!this._isRightDragging || this._cameraMode !== 'fly') return
         this._euler.y -= e.movementX * this._lookSpeed
@@ -162,19 +174,23 @@ export class SceneManager {
       this.raycaster.params.Mesh.threshold = 0
       this.mouse = new THREE.Vector2()
       this._isDraggingTransform = false
-
+      //dragging-changed 拖曳開始和結束各處發一次
       this.transformControls.addEventListener('dragging-changed', (e) => {
+        //用來記是否為拖曳狀態
         this.orbitControls.enabled = !e.value
         if (e.value) {
+          //卡住其他行為，只讓thress的行為通過(位移旋轉縮放)
           this._isDraggingTransform = true
         } else {
-          //delay for 50ms for Race condition
+          //delay for 50ms for Race condition，防止誤觸避免觸發click
           setTimeout(() => { this._isDraggingTransform = false }, 50)
           const frags = getFragments()
           frags.update(true)
           this.onChange?.() 
         }
       })
+      //objectChange mesh 的位置角度有變化就會觸發
+      //目的，為了避免移動多次觸發而導致的卡頓，一個處理完，直接除裡當下最新的那一個
       this.transformControls.addEventListener('objectChange', () => {
         if (this._updateScheduled) return
         this._updateScheduled = true
@@ -597,6 +613,7 @@ export class SceneManager {
           const right = new THREE.Vector3()
           right.crossVectors(forward, this.camera.up).normalize()
 
+          //update cemara move 
           if (this._flyKeys.w) this.camera.position.addScaledVector(forward, moveSpeed)
           if (this._flyKeys.s) this.camera.position.addScaledVector(forward, -moveSpeed)
           if (this._flyKeys.d) this.camera.position.addScaledVector(right, moveSpeed)
@@ -607,6 +624,7 @@ export class SceneManager {
           this.orbitControls.update()
         }
 
+        //for update object in canvas
         this.renderer.render(this.scene, this.camera)
       }
       animate()
@@ -909,9 +927,20 @@ export class SceneManager {
   addIFCModel({ object, model, fragmentBytes }, filename) {
     try {
       const id = `ifc_${Date.now()}`
+
+
+      //--------------------------------------------------------------------------------------------------------------------------
+      //prepare for slice
+
+
+      //讓model知道camrera的資訊
       model.useCamera(this.camera)
-      // 3D clipping planes for IFC models are handled by the fragments worker, so we need to provide a callback to get the current active clipping planes
+      // 先宣告好，頗面分析時get平面，會被內部套件呼叫
       model.getClippingPlanesEvent = () => this._activeClippingPlanes()
+
+      //--------------------------------------------------------------------------------------------------------------------------
+
+
       this.scene.add(object)
       this.objects.set(id, { mesh: object, model, fragmentBytes, type: 'ifc', name: filename, opacity: 1 })
       return id
@@ -925,6 +954,8 @@ export class SceneManager {
   async loadGLB(file) {
     try {
       const fileBuffer = await file.arrayBuffer()
+      //loadifc用到的 thatopen/fragments本身支援async/await, 但three.js不支援，所以要用Promise包裝
+      //when success ,resolve; fail, reject 
       return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(file)
         const loader = new GLTFLoader()
@@ -934,9 +965,12 @@ export class SceneManager {
             URL.revokeObjectURL(url)
             const model = gltf.scene
             const id = `glb_${++this._glbCounter}_${Date.now()}`
+            //traverse遍例所有的mesh
             model.traverse(c => {
               if (c.isMesh) {
+                //陰影屬性
                 c.castShadow = true
+                //接收別人的陰影
                 c.receiveShadow = true
               }
             })
@@ -970,13 +1004,19 @@ export class SceneManager {
       this.deselectMesh()
 
       if (obj.type === 'ifc' && obj.model) {
+        //透過thatopen來刪
         const frags = getFragments()
         frags.disposeModel(obj.model.modelId)
-      } else {
+      }
+      //glb 
+      else {
+        //從畫面中消失
         this.scene.remove(obj.mesh)
         obj.mesh.traverse(c => {
           if (c.isMesh) {
+            //glb是樹狀結構，先刪掉頂點，在刪掉leaf
             c.geometry?.dispose()
+            //一個一個刪掉mesh
             if (Array.isArray(c.material)) c.material.forEach(m => m.dispose())
             else c.material?.dispose()
           }
@@ -1010,8 +1050,8 @@ export class SceneManager {
       if (meshes.length === 0) return
       //3d bbox
       const box = new THREE.Box3()
-      meshes.forEach(m => box.expandByObject(m))
       //box contain all mesh
+      meshes.forEach(m => box.expandByObject(m))
       if (box.isEmpty()) return
 
       const center = box.getCenter(new THREE.Vector3())
@@ -1076,23 +1116,28 @@ export class SceneManager {
         if (saved.type === 'ifc' && saved.fragmentData) {
           const buffer = base64ToArrayBuffer(saved.fragmentData)
           const result = await loadFragmentBytes(new Uint8Array(buffer), saved.name)
+          //先載入，再拿到一份ID參考
           const id = this.addIFCModel(result, saved.name)
           const obj = this.objects.get(id)
           obj.mesh.position.fromArray(saved.position)
           obj.mesh.rotation.set(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3])
           obj.mesh.scale.fromArray(saved.scale)
+          //_startloop會即時更新
           if (saved.opacity !== undefined) this.setObjectOpacity(id, saved.opacity)
         }
 
         if (saved.type === 'glb' && saved.fileData) {
           const buffer = base64ToArrayBuffer(saved.fileData)
+          //URL只能給file或BLOB，所以要把glb包一層
           const blob = new Blob([buffer])
           const file = new File([blob], saved.name)
+          //先載入，再拿到一份ID參考
           const id = await this.loadGLB(file)
           const obj = this.objects.get(id)
           obj.mesh.position.fromArray(saved.position)
           obj.mesh.rotation.set(saved.rotation[0], saved.rotation[1], saved.rotation[2], saved.rotation[3])
           obj.mesh.scale.fromArray(saved.scale)
+          //_startloop會即時更新
           if (saved.opacity !== undefined) this.setObjectOpacity(id, saved.opacity)
         }
       }

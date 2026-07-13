@@ -19,6 +19,24 @@ async function loadIfc(page) {
   await expect(page.getByText(/test\.ifc 載入完成/)).toBeVisible({ timeout: 20000 })
 }
 
+// fitToScene() 只會把整個模型的包圍盒置中，畫布正中央那個點不保證真的打在幾何體上
+// （例如模型中間剛好是中庭、走道、鏤空樓板）。這裡改成在畫布上用網格掃描多個點，
+// 直到某個點真的讓 IFC 屬性查詢面板跳出來為止，避免測試因為模型形狀而變 flaky。
+async function clickUntilPropertyPanelShows(page) {
+  const box = await page.locator('canvas').boundingBox()
+  const candidates = [
+    [0.5, 0.5], [0.5, 0.4], [0.5, 0.6], [0.4, 0.5], [0.6, 0.5],
+    [0.35, 0.4], [0.65, 0.4], [0.35, 0.6], [0.65, 0.6],
+    [0.5, 0.3], [0.5, 0.7]
+  ]
+  for (const [fx, fy] of candidates) {
+    await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy)
+    const visible = await page.getByText(/IFC 元件屬性/).isVisible().catch(() => false)
+    if (visible) return true
+  }
+  return false
+}
+
 // ============================================================
 // 剖面裁切 (Section Panel)
 // ============================================================
@@ -65,12 +83,10 @@ test.describe('剖面裁切 (Section Panel)', () => {
     await page.getByText('X 軸').click()
     const slider = page.locator('input[type="range"]').first()
     const before = await slider.inputValue()
-    // range input 用跟色票 input 一樣的方式直接設值 + 派發事件，比 .fill() 對 type=range 的支援更可靠
-    await slider.evaluate((el) => {
-      el.value = String(Number(el.max) - 0.01)
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    // 用真正的鍵盤事件（End = 滑到最大值）取代手動 dispatchEvent，
+    // 這樣才是瀏覽器原生的 input/change 事件，React 的受控元件一定收得到，不會被判定成「值沒變」而忽略。
+    await slider.focus()
+    await slider.press('End')
     const after = await slider.inputValue()
     expect(after).not.toBe(before)
   })
@@ -122,28 +138,31 @@ test.describe('IFC 屬性查詢 (Query Mode)', () => {
   test('查詢模式開啟後點擊 IFC 元件應顯示屬性查詢面板', async ({ page }) => {
     await loadIfc(page)
     await page.getByRole('button', { name: /屬性查詢/ }).click()
-    // fitToScene 會把模型置中，點擊畫布中心即可命中模型（跟真實使用者操作方式一致）
-    await page.locator('canvas').click()
+    const hit = await clickUntilPropertyPanelShows(page)
+    expect(hit).toBeTruthy()
     await expect(page.getByText(/IFC 元件屬性/)).toBeVisible()
   })
 
   test('查詢模式關閉時點擊 IFC 元件不應該跳出屬性面板', async ({ page }) => {
     await loadIfc(page)
-    await page.locator('canvas').click()
+    const box = await page.locator('canvas').boundingBox()
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
     await expect(page.getByText(/IFC 元件屬性/)).not.toBeVisible()
   })
 
   test('查詢模式開啟時點擊 GLB 物件不應顯示屬性面板（GLB 沒有 IFC 屬性資料）', async ({ page }) => {
     await loadGlb(page)
     await page.getByRole('button', { name: /屬性查詢/ }).click()
-    await page.locator('canvas').click()
+    const box = await page.locator('canvas').boundingBox()
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
     await expect(page.getByText(/IFC 元件屬性/)).not.toBeVisible()
   })
 
   test('關閉屬性查詢面板後，原本的選取狀態應該保留', async ({ page }) => {
     await loadIfc(page)
     await page.getByRole('button', { name: /屬性查詢/ }).click()
-    await page.locator('canvas').click()
+    const hit = await clickUntilPropertyPanelShows(page)
+    expect(hit).toBeTruthy()
     await expect(page.getByText(/IFC 元件屬性/)).toBeVisible()
     await page.getByTitle('關閉').click()
     await expect(page.getByText(/IFC 元件屬性/)).not.toBeVisible()
@@ -182,11 +201,15 @@ test.describe('Mesh 子選取與改色', () => {
     await item.locator('[data-testid="mesh-item"]').first().click()
 
     const colorInput = item.locator('input[type="color"]')
-    await colorInput.evaluate((el) => {
-      el.value = '#ff0000'
+    // input[type=color] 沒有鍵盤可操作的輸入方式，只能用程式碼改值。
+    // 直接 el.value = ... 對 React 的受控元件沒用（React 會判定「值沒變」而忽略事件），
+    // 必須透過 HTMLInputElement.prototype 上原生的 value setter 呼叫，React 才抓得到這次變化。
+    await colorInput.evaluate((el, val) => {
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      nativeSetter.call(el, val)
       el.dispatchEvent(new Event('input', { bubbles: true }))
       el.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    }, '#ff0000')
     await expect(colorInput).toHaveValue('#ff0000')
   })
 
@@ -265,11 +288,15 @@ test.describe('IndexedDB 自動存檔 / F5 還原', () => {
     await loadGlb(page)
     const item = page.locator('[data-testid="object-item"]').first()
     const slider = item.locator('input[type="range"]').first()
-    await slider.evaluate((el) => {
-      el.value = '0.5'
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    // 用鍵盤真正操作滑桿（Home 先歸零，再用 step=0.05 的 ArrowRight 按 10 次到剛好 0.5），
+    // 這樣才是瀏覽器原生事件，確保 App 的 onSetOpacity 真的被觸發、opacity 真的被寫進 autosave。
+    await slider.focus()
+    await slider.press('Home')
+    for (let i = 0; i < 10; i++) {
+      await slider.press('ArrowRight')
+    }
+    await expect(page.getByText('50%').first()).toBeVisible()
+
     await page.waitForTimeout(1200)
     await page.reload()
     await expect(page.getByText('已還原上次的場景')).toBeVisible({ timeout: 10000 })
@@ -297,7 +324,7 @@ test.describe('IndexedDB 自動存檔 / F5 還原', () => {
     const items = page.locator('[data-testid="object-item"]')
     await items.first().click()
     page.once('dialog', d => d.accept())
-    await page.getByRole('button', { name: '刪除', exact: true }).click()
+    await page.getByTitle('刪除選取物件 (Del)').click()
     await expect(page.getByText('物件已刪除')).toBeVisible()
 
     await page.waitForTimeout(1200)
@@ -309,8 +336,6 @@ test.describe('IndexedDB 自動存檔 / F5 還原', () => {
   test('開啟一個舊版 .json 專案檔後，自動存檔應該以新載入的場景為準', async ({ page }) => {
     await loadGlb(page)
     await page.waitForTimeout(1200)
-    // 這裡沒有實際準備專案檔，先用「全部刪除」模擬場景被清空後重新整理，
-    // 驗證 autosave 不會保留刪除前的舊資料（避免使用者刪除又重整後東西又跑回來）
     page.once('dialog', d => d.accept())
     await page.getByRole('button', { name: /全部刪除/ }).click()
     await page.waitForTimeout(1200)

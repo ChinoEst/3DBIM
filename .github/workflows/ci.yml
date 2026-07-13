@@ -78,7 +78,7 @@ jobs:
 
   deploy:
     needs: [test, e2e]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       pages: write

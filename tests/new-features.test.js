@@ -138,6 +138,30 @@ describe('剖面裁切面板: getRange', () => {
     const range = getRange(bounds, 'x', 5)
     expect(range.step).toBeGreaterThan(0)
   })
+
+  it('沒有包圍盒且 position 為 null/undefined 時，應退回以 0 為中心的預設範圍', () => {
+    const range = getRange(null, 'x', null)
+    expect(range.min).toBe(-10)
+    expect(range.max).toBe(10)
+  })
+
+  it('Y 軸應該讀取包圍盒的第 2 個維度（index 1），不能跟 X/Z 混淆', () => {
+    const bounds = { min: [0, 100, 0], max: [10, 120, 30] }
+    const range = getRange(bounds, 'y', 110)
+    const span = 20
+    const margin = span * 0.15
+    expect(range.min).toBeCloseTo(100 - margin)
+    expect(range.max).toBeCloseTo(120 + margin)
+  })
+
+  it('Z 軸應該讀取包圍盒的第 3 個維度（index 2），不能跟 X/Y 混淆', () => {
+    const bounds = { min: [0, 0, -5], max: [10, 20, 55] }
+    const range = getRange(bounds, 'z', 0)
+    const span = 60
+    const margin = span * 0.15
+    expect(range.min).toBeCloseTo(-5 - margin)
+    expect(range.max).toBeCloseTo(55 + margin)
+  })
 })
 
 // ============================================================

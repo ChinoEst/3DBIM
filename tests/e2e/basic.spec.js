@@ -16,7 +16,7 @@ async function dragCanvas(page, offsetX, offsetY) {
   const startY = box.y + box.height / 2
   await page.mouse.move(startX, startY)
   await page.mouse.down()
-  await page.mouse.move(startX + offsetX, startY + offsetY, { steps: 10 })//分10步移動，不然會瞬移完成
+  await page.mouse.move(startX + offsetX, startY + offsetY, { steps: 10 })
   await page.mouse.up()
 }
 
@@ -37,9 +37,9 @@ test.describe('BIM Viewer UI', () => {
     await page.goto('/')
     await expect(page.getByRole('button', { name: /開啟 IFC/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /加入 GLB/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /位移 W/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /旋轉 E/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /縮放 R/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /位移 Z/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /旋轉 X/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /縮放 C/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /儲存/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /開啟專案/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /重置視角/ })).toBeVisible()
@@ -60,11 +60,11 @@ test.describe('BIM Viewer UI', () => {
 
   test('transform mode buttons update status text', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: /旋轉 E/ }).click()
+    await page.getByRole('button', { name: /旋轉 X/ }).click()
     await expect(page.getByText(/模式：旋轉/)).toBeVisible()
-    await page.getByRole('button', { name: /縮放 R/ }).click()
+    await page.getByRole('button', { name: /縮放 C/ }).click()
     await expect(page.getByText(/模式：縮放/)).toBeVisible()
-    await page.getByRole('button', { name: /位移 W/ }).click()
+    await page.getByRole('button', { name: /位移 Z/ }).click()
     await expect(page.getByText(/模式：位移/)).toBeVisible()
   })
 
@@ -155,7 +155,7 @@ test.describe('BIM Viewer UI', () => {
     await expect(page.getByText(/test\.ifc 載入完成/), { timeout: 20000 }).toBeVisible()
     await expect(page.getByText(/物件數：1/), { timeout: 20000 }).toBeVisible()
 
-    await page.getByRole('button', { name: /位移 W/ }).click()
+    await page.getByRole('button', { name: /位移 Z/ }).click()
     const item = page.locator('[data-testid="object-item"]').first()
     await item.click()
     await dragCanvas(page, 40, 0)
@@ -168,7 +168,7 @@ test.describe('BIM Viewer UI', () => {
     await expect(page.getByText(/test\.ifc 載入完成/), { timeout: 20000 }).toBeVisible()
     await expect(page.getByText(/物件數：1/), { timeout: 20000 }).toBeVisible()
 
-    await page.getByRole('button', { name: /旋轉 E/ }).click()
+    await page.getByRole('button', { name: /旋轉 X/ }).click()
     const item = page.locator('[data-testid="object-item"]').first()
     await item.click()
     await dragCanvas(page, 0, 40)
@@ -181,7 +181,7 @@ test.describe('BIM Viewer UI', () => {
     await expect(page.getByText(/test\.ifc 載入完成/), { timeout: 20000 }).toBeVisible()
     await expect(page.getByText(/物件數：1/), { timeout: 20000 }).toBeVisible()
 
-    await page.getByRole('button', { name: /縮放 R/ }).click()
+    await page.getByRole('button', { name: /縮放 C/ }).click()
     const item = page.locator('[data-testid="object-item"]').first()
     await item.click()
     await dragCanvas(page, 20, 20)

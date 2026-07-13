@@ -9,13 +9,16 @@ const ifcFile = path.resolve(__dirname, '..', '..', 'test.ifc')
 
 async function loadGlb(page) {
   await page.goto('/')
+  //file<input type="file", accept=accept=".glb,.gltf"> gave him glbFile
   await page.setInputFiles('input[type="file"][accept=".glb,.gltf"]', glbFile)
   await expect(page.getByText(/test\.glb 加入場景/)).toBeVisible()
 }
 
 async function loadIfc(page) {
   await page.goto('/')
+  ////file<input type="file", accept=accept=".ifc"> gave him ifcFile
   await page.setInputFiles('input[type="file"][accept=".ifc"]', ifcFile)
+  //畫面有出現.ifc 載入完成就通過
   await expect(page.getByText(/test\.ifc 載入完成/), { timeout: 20000 }).toBeVisible()
 }
 
@@ -112,7 +115,10 @@ test.describe('Mesh 子選取與改色', () => {
     await page.setInputFiles('input[type="file"][accept=".glb,.gltf"]', glbFile)
     await expect(page.getByText(/物件數：2/)).toBeVisible()
 
+
+    //find data-testid="object-item"
     const items = page.locator('[data-testid="object-item"]')
+    //get fisrst one
     await items.nth(0).click()
     await items.nth(0).locator('[data-testid="mesh-item"]').first().click()
     await expect(items.nth(0).locator('input[type="color"]')).toHaveCount(1)

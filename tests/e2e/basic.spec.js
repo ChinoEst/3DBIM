@@ -16,14 +16,17 @@ async function dragCanvas(page, offsetX, offsetY) {
   const startY = box.y + box.height / 2
   await page.mouse.move(startX, startY)
   await page.mouse.down()
-  await page.mouse.move(startX + offsetX, startY + offsetY, { steps: 10 })
+  await page.mouse.move(startX + offsetX, startY + offsetY, { steps: 10 })//分10步移動，不然會瞬移完成
   await page.mouse.up()
 }
 
 test.describe('BIM Viewer UI', () => {
   test('page loads and canvas exists', async ({ page }) => {
+    //goto http://localhost:5173/
     await page.goto('/')
+    //open
     await expect(page).toHaveTitle(/BIM Viewer/)
+    //wait for <canvas> appear
     const canvas = await page.waitForSelector('canvas', { timeout: 10000 })
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
